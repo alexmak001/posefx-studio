@@ -1,0 +1,17 @@
+camera:
+  device_id: 0
+  width: 1280
+  height: 720
+  fps: 30
+
+inference:
+  pose_model: "yolov8n-pose.pt"
+  seg_model: "yolov8n-seg.pt"
+  device: "cpu"
+  confidence_threshold: 0.5
+
+debug:
+  show_skeleton: true
+  show_mask: true
+  show_fps: true
+  show_keypoint_confidence: true

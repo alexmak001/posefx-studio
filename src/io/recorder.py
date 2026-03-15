@@ -1,0 +1,1 @@
+"""Video recorder module."""
