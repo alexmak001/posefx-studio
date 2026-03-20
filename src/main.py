@@ -1,6 +1,8 @@
 """Main entry point for posefx-studio.
 
-Usage: python -m src.main --config config/demo.yaml
+Usage:
+    python -m src.main --config config/demo.yaml
+    python -m src.main --config config/demo.yaml --input video.mp4
 """
 
 import argparse
@@ -13,8 +15,10 @@ from src.inference.base import MaskResult, PoseResult
 from src.inference.pose_estimator import YOLOPoseEstimator
 from src.inference.segmenter import YOLOSegmenter
 from src.io.preview import PreviewWindow
+from src.io.video_input import VideoFileInput
 from src.io.webcam import WebcamCapture
 from src.utils.config import load_config
+from src.utils.platform import detect_platform
 from src.utils.timing import FPSCounter
 
 logging.basicConfig(
@@ -99,6 +103,7 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="posefx-studio: real-time body tracking pipeline")
     parser.add_argument("--config", required=True, help="Path to YAML config file")
+    parser.add_argument("--input", default=None, help="Path to video file (uses webcam if not provided)")
     return parser.parse_args()
 
 
@@ -107,7 +112,16 @@ def main() -> None:
     args = parse_args()
     config = load_config(args.config)
 
-    camera = WebcamCapture(config.camera)
+    platform = detect_platform()
+
+    # Select input source
+    if args.input:
+        source = VideoFileInput(args.input)
+        logger.info("Using video file input: %s", args.input)
+    else:
+        source = WebcamCapture(config.camera)
+        logger.info("Using webcam input")
+
     preview = PreviewWindow()
     fps_counter = FPSCounter()
 
@@ -118,9 +132,9 @@ def main() -> None:
 
     try:
         while True:
-            ok, frame = camera.read()
+            ok, frame = source.read()
             if not ok:
-                logger.error("Failed to read frame from camera")
+                logger.error("Failed to read frame from source")
                 break
 
             fps_counter.tick()
@@ -151,7 +165,7 @@ def main() -> None:
             if preview.should_quit():
                 break
     finally:
-        camera.release()
+        source.release()
         preview.destroy()
         logger.info("Pipeline stopped")
 

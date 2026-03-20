@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//opt/anaconda3/bin/**)",
+      "Read(//usr/bin/**)",
+      "Bash(/opt/homebrew/bin/python3 --version)",
+      "Read(//Users/alex/.pyenv/versions/**)",
+      "Bash(rm -rf .venv)",
+      "Bash(export PATH=\"$HOME/.local/bin:$PATH\")",
+      "Bash(uv sync:*)",
+      "Bash(uv lock:*)",
+      "Bash(.venv/bin/python -m pytest tests/ -v)"
+    ]
+  }
+}

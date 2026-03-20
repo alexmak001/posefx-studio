@@ -13,6 +13,7 @@ build/
 runs/
 .env
 .env.*
+BUILDPLAN.md
 
 # Media files — don't commit test videos/images
 *.mp4
