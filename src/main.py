@@ -28,6 +28,14 @@ logger = logging.getLogger(__name__)
 KEY_NEXT = ord("n")
 KEY_PREV = ord("p")
 KEY_BASS_METER = ord("b")
+KEY_SNAP = ord("s")
+KEY_RECORD = ord("r")
+KEY_AUTO_CAPTURE = ord("a")
+COUNTDOWN_FONT_SCALE = 4.0
+COUNTDOWN_THICKNESS = 8
+STATUS_TEXT_COLOR = (255, 255, 255)
+RECORDING_COLOR = (0, 0, 255)
+AUTO_COLOR = (0, 215, 255)
 
 
 def parse_args() -> argparse.Namespace:
@@ -67,7 +75,7 @@ def main() -> None:
     show_bass_meter = False
 
     logger.info(
-        "Starting pipeline — 'n'/'p' cycle effects, 'b' toggle bass meter, 'q'/ESC quit"
+        "Starting pipeline — 'n'/'p' cycle effects, 's' photo, 'r' record, 'a' auto, 'b' bass, 'q'/ESC quit"
     )
     logger.info("Available effects: %s", ", ".join(engine.get_renderer_names()))
 
@@ -86,11 +94,13 @@ def main() -> None:
 
             # Process frame through the engine (inference + effect rendering)
             output = engine.process_frame(frame)
+            capture_state = engine.get_capture_state()
+            preview_frame = output.copy()
 
             # HUD overlays
             if config.debug.show_fps:
                 cv2.putText(
-                    output,
+                    preview_frame,
                     f"FPS: {fps_counter.fps:.1f}",
                     (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX,
@@ -104,9 +114,9 @@ def main() -> None:
             text_size = cv2.getTextSize(
                 effect_name, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2
             )[0]
-            text_x = output.shape[1] - text_size[0] - 10
+            text_x = preview_frame.shape[1] - text_size[0] - 10
             cv2.putText(
-                output,
+                preview_frame,
                 effect_name,
                 (text_x, 30),
                 cv2.FONT_HERSHEY_SIMPLEX,
@@ -120,10 +130,10 @@ def main() -> None:
                 bass = audio.bass_energy
                 bar_w = 200
                 bar_h = 20
-                bar_x, bar_y = 10, output.shape[0] - 40
+                bar_x, bar_y = 10, preview_frame.shape[0] - 40
                 # Background
                 cv2.rectangle(
-                    output, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h),
+                    preview_frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h),
                     (40, 40, 40), -1,
                 )
                 # Fill — green to red gradient
@@ -132,17 +142,17 @@ def main() -> None:
                     g = int(255 * (1 - bass))
                     r = int(255 * bass)
                     cv2.rectangle(
-                        output, (bar_x, bar_y), (bar_x + fill_w, bar_y + bar_h),
+                        preview_frame, (bar_x, bar_y), (bar_x + fill_w, bar_y + bar_h),
                         (0, g, r), -1,
                     )
                 # Border
                 cv2.rectangle(
-                    output, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h),
+                    preview_frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h),
                     (200, 200, 200), 1,
                 )
                 # Numeric value
                 cv2.putText(
-                    output,
+                    preview_frame,
                     f"BASS: {bass:.2f}",
                     (bar_x + bar_w + 10, bar_y + 16),
                     cv2.FONT_HERSHEY_SIMPLEX,
@@ -151,7 +161,74 @@ def main() -> None:
                     1,
                 )
 
-            preview.show(output)
+            if capture_state.flash_active:
+                flash_overlay = preview_frame.copy()
+                flash_overlay[:] = 255
+                preview_frame = cv2.addWeighted(flash_overlay, 0.45, preview_frame, 0.55, 0.0)
+                snap_text = "SNAP!"
+                snap_size = cv2.getTextSize(
+                    snap_text, cv2.FONT_HERSHEY_SIMPLEX, 2.0, 4
+                )[0]
+                snap_x = (preview_frame.shape[1] - snap_size[0]) // 2
+                snap_y = (preview_frame.shape[0] + snap_size[1]) // 2
+                cv2.putText(
+                    preview_frame,
+                    snap_text,
+                    (snap_x, snap_y),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    2.0,
+                    (255, 255, 255),
+                    4,
+                )
+
+            if capture_state.countdown_value is not None:
+                countdown_text = str(capture_state.countdown_value)
+                countdown_size = cv2.getTextSize(
+                    countdown_text,
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    COUNTDOWN_FONT_SCALE,
+                    COUNTDOWN_THICKNESS,
+                )[0]
+                countdown_x = (preview_frame.shape[1] - countdown_size[0]) // 2
+                countdown_y = (preview_frame.shape[0] + countdown_size[1]) // 2
+                cv2.putText(
+                    preview_frame,
+                    countdown_text,
+                    (countdown_x, countdown_y),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    COUNTDOWN_FONT_SCALE,
+                    STATUS_TEXT_COLOR,
+                    COUNTDOWN_THICKNESS,
+                )
+
+            if capture_state.is_recording:
+                cv2.circle(preview_frame, (28, 68), 10, RECORDING_COLOR, -1)
+                cv2.putText(
+                    preview_frame,
+                    "REC",
+                    (46, 75),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    STATUS_TEXT_COLOR,
+                    2,
+                )
+
+            if capture_state.auto_capture_enabled:
+                auto_text = "AUTO"
+                auto_size = cv2.getTextSize(auto_text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)[0]
+                auto_x = preview_frame.shape[1] - auto_size[0] - 10
+                auto_y = 64
+                cv2.putText(
+                    preview_frame,
+                    auto_text,
+                    (auto_x, auto_y),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.8,
+                    AUTO_COLOR,
+                    2,
+                )
+
+            preview.show(preview_frame)
 
             # Handle keyboard input
             key = preview.last_key
@@ -159,6 +236,27 @@ def main() -> None:
                 engine.next_renderer()
             elif key == KEY_PREV:
                 engine.prev_renderer()
+            elif key == KEY_SNAP:
+                engine.trigger_photo()
+            elif key == KEY_RECORD:
+                capture_state = engine.get_capture_state()
+                if capture_state.is_recording:
+                    saved_path = engine.stop_recording()
+                    if saved_path is not None:
+                        logger.info("Recording saved to %s", saved_path)
+                else:
+                    resolution = (frame.shape[1], frame.shape[0])
+                    try:
+                        path = engine.start_recording(
+                            fps_counter.fps or config.camera.fps,
+                            resolution,
+                        )
+                    except Exception:
+                        logger.exception("Failed to start recording")
+                    else:
+                        logger.info("Recording started: %s", path)
+            elif key == KEY_AUTO_CAPTURE:
+                engine.toggle_auto_capture()
             elif key == KEY_BASS_METER:
                 show_bass_meter = not show_bass_meter
                 logger.info("Bass meter: %s", "ON" if show_bass_meter else "OFF")
@@ -168,6 +266,9 @@ def main() -> None:
     finally:
         if audio is not None:
             audio.stop()
+        final_recording = engine.close()
+        if final_recording is not None:
+            logger.info("Recording saved to %s", final_recording)
         source.release()
         preview.destroy()
         logger.info("Pipeline stopped")

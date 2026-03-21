@@ -9,7 +9,8 @@
       "Bash(export PATH=\"$HOME/.local/bin:$PATH\")",
       "Bash(uv sync:*)",
       "Bash(uv lock:*)",
-      "Bash(.venv/bin/python -m pytest tests/ -v)"
+      "Bash(.venv/bin/python -m pytest tests/ -v)",
+      "Bash(sudo pkill:*)"
     ]
   }
 }

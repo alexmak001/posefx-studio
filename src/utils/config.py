@@ -3,10 +3,13 @@
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 import yaml
 
 logger = logging.getLogger(__name__)
+CaptureMode = Literal["raw", "edited", "both"]
+VALID_CAPTURE_MODES = {"raw", "edited", "both"}
 
 
 @dataclass
@@ -59,6 +62,33 @@ class AudioConfig:
 
 
 @dataclass
+class CaptureConfig:
+    """Photo and video output settings."""
+    photo_dir: str = "data/photos"
+    recording_dir: str = "data/recordings"
+    edited_subdir: str = "edited"
+    raw_subdir: str = "raw"
+    photo_mode: CaptureMode = "both"
+    record_mode: CaptureMode = "both"
+    photo_quality: int = 95
+    auto_capture_interval: int = 15
+    countdown_seconds: int = 3
+
+    def __post_init__(self) -> None:
+        """Validate capture mode settings loaded from config."""
+        if self.photo_mode not in VALID_CAPTURE_MODES:
+            raise ValueError(
+                f"Invalid capture.photo_mode: {self.photo_mode!r}. "
+                f"Expected one of {sorted(VALID_CAPTURE_MODES)}"
+            )
+        if self.record_mode not in VALID_CAPTURE_MODES:
+            raise ValueError(
+                f"Invalid capture.record_mode: {self.record_mode!r}. "
+                f"Expected one of {sorted(VALID_CAPTURE_MODES)}"
+            )
+
+
+@dataclass
 class AppConfig:
     """Top-level application config."""
     camera: CameraConfig = field(default_factory=CameraConfig)
@@ -66,6 +96,7 @@ class AppConfig:
     debug: DebugConfig = field(default_factory=DebugConfig)
     effects: EffectsConfig = field(default_factory=EffectsConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
+    capture: CaptureConfig = field(default_factory=CaptureConfig)
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -95,4 +126,5 @@ def load_config(path: str | Path) -> AppConfig:
         debug=DebugConfig(**raw.get("debug", {})),
         effects=EffectsConfig(**raw.get("effects", {})),
         audio=AudioConfig(**raw.get("audio", {})),
+        capture=CaptureConfig(**raw.get("capture", {})),
     )

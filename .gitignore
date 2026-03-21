@@ -28,3 +28,17 @@ BUILDPLAN.md
 *.bmp
 *.tiff
 *.webp
+
+# Generated capture output
+data/photos/*
+data/recordings/*
+!data/photos/.gitkeep
+!data/recordings/.gitkeep
+!data/photos/edited/
+!data/photos/raw/
+!data/photos/edited/.gitkeep
+!data/photos/raw/.gitkeep
+!data/recordings/edited/
+!data/recordings/raw/
+!data/recordings/edited/.gitkeep
+!data/recordings/raw/.gitkeep

@@ -26,6 +26,17 @@ audio:
   sensitivity: 2.0        # multiplier on bass energy (higher = more reactive)
   noise_gate: 2000.0       # bass magnitude below this is treated as silence
 
+capture:
+  photo_dir: "data/photos"
+  recording_dir: "data/recordings"
+  edited_subdir: "edited"
+  raw_subdir: "raw"
+  photo_mode: "both"       # raw, edited, or both
+  record_mode: "both"      # raw, edited, or both
+  photo_quality: 95
+  auto_capture_interval: 15
+  countdown_seconds: 3
+
 debug:
   show_skeleton: true
   show_mask: true
