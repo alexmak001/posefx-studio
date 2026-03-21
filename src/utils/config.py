@@ -37,11 +37,34 @@ class DebugConfig:
 
 
 @dataclass
+class EffectsConfig:
+    """Effect rendering settings."""
+    default: str = "neon_skeleton"
+
+
+@dataclass
+class AudioConfig:
+    """Audio capture and bass extraction settings."""
+    enabled: bool = True
+    device_index: int | None = None
+    sample_rate: int = 44100
+    chunk_size: int = 1024
+    bass_low_hz: int = 20
+    bass_high_hz: int = 200
+    smoothing_attack: float = 0.3
+    smoothing_decay: float = 0.05
+    sensitivity: float = 3.0
+    noise_gate: float = 500.0
+
+
+@dataclass
 class AppConfig:
     """Top-level application config."""
     camera: CameraConfig = field(default_factory=CameraConfig)
     inference: InferenceConfig = field(default_factory=InferenceConfig)
     debug: DebugConfig = field(default_factory=DebugConfig)
+    effects: EffectsConfig = field(default_factory=EffectsConfig)
+    audio: AudioConfig = field(default_factory=AudioConfig)
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -69,4 +92,6 @@ def load_config(path: str | Path) -> AppConfig:
         camera=CameraConfig(**raw.get("camera", {})),
         inference=InferenceConfig(**raw.get("inference", {})),
         debug=DebugConfig(**raw.get("debug", {})),
+        effects=EffectsConfig(**raw.get("effects", {})),
+        audio=AudioConfig(**raw.get("audio", {})),
     )

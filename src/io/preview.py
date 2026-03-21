@@ -30,6 +30,11 @@ class PreviewWindow:
         cv2.imshow(self._window_name, frame)
         self._last_key = cv2.waitKey(1) & 0xFF
 
+    @property
+    def last_key(self) -> int:
+        """The last key code captured by waitKey, or -1 if none."""
+        return self._last_key
+
     def should_quit(self) -> bool:
         """Check if the user pressed a quit key ('q' or ESC).
 

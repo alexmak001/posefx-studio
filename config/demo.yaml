@@ -10,6 +10,21 @@ inference:
   device: "cpu"
   confidence_threshold: 0.5
 
+effects:
+  default: "neon_skeleton"
+
+audio:
+  enabled: true
+  device_index: null
+  sample_rate: 44100
+  chunk_size: 1024
+  bass_low_hz: 20
+  bass_high_hz: 200
+  smoothing_attack: 0.3
+  smoothing_decay: 0.05
+  sensitivity: 2.0        # multiplier on bass energy (higher = more reactive)
+  noise_gate: 2000.0       # bass magnitude below this is treated as silence
+
 debug:
   show_skeleton: true
   show_mask: true

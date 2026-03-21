@@ -9,11 +9,9 @@ import argparse
 import logging
 
 import cv2
-import numpy as np
 
-from src.inference.base import MaskResult, PoseResult
-from src.inference.pose_estimator import YOLOPoseEstimator
-from src.inference.segmenter import YOLOSegmenter
+from src.audio.capture import AudioCapture
+from src.engine import PartyEngine
 from src.io.preview import PreviewWindow
 from src.io.video_input import VideoFileInput
 from src.io.webcam import WebcamCapture
@@ -27,76 +25,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# COCO skeleton connections (pairs of keypoint indices)
-SKELETON_CONNECTIONS = [
-    (0, 1), (0, 2), (1, 3), (2, 4),        # head
-    (5, 6),                                   # shoulders
-    (5, 7), (7, 9),                           # left arm
-    (6, 8), (8, 10),                          # right arm
-    (5, 11), (6, 12),                         # torso
-    (11, 12),                                 # hips
-    (11, 13), (13, 15),                       # left leg
-    (12, 14), (14, 16),                       # right leg
-]
-
-KEYPOINT_COLOR = (0, 255, 255)   # cyan
-SKELETON_COLOR = (0, 255, 0)     # green
-KEYPOINT_RADIUS = 4
-SKELETON_THICKNESS = 2
-CONFIDENCE_MIN = 0.3
-MASK_COLOR = (255, 100, 50)  # blue-ish overlay
-MASK_ALPHA = 0.4
-
-
-def draw_mask(frame: np.ndarray, mask_result: MaskResult) -> None:
-    """Draw semi-transparent person mask overlay on a frame.
-
-    Args:
-        frame: BGR image to draw on (modified in place).
-        mask_result: Segmentation result with combined mask.
-    """
-    if mask_result.num_people == 0:
-        return
-
-    overlay = frame.copy()
-    overlay[mask_result.combined_mask > 0] = MASK_COLOR
-    cv2.addWeighted(overlay, MASK_ALPHA, frame, 1 - MASK_ALPHA, 0, dst=frame)
-
-
-def draw_skeleton(frame: np.ndarray, pose: PoseResult, show_confidence: bool) -> None:
-    """Draw skeleton overlay on a frame.
-
-    Args:
-        frame: BGR image to draw on (modified in place).
-        pose: Pose estimation result.
-        show_confidence: Whether to display confidence values near keypoints.
-    """
-    for person_idx in range(pose.num_people):
-        kpts = pose.keypoints[person_idx]     # (17, 2)
-        confs = pose.confidences[person_idx]  # (17,)
-
-        # Draw skeleton lines
-        for i, j in SKELETON_CONNECTIONS:
-            if confs[i] > CONFIDENCE_MIN and confs[j] > CONFIDENCE_MIN:
-                pt1 = (int(kpts[i, 0]), int(kpts[i, 1]))
-                pt2 = (int(kpts[j, 0]), int(kpts[j, 1]))
-                cv2.line(frame, pt1, pt2, SKELETON_COLOR, SKELETON_THICKNESS)
-
-        # Draw keypoints
-        for k in range(17):
-            if confs[k] > CONFIDENCE_MIN:
-                x, y = int(kpts[k, 0]), int(kpts[k, 1])
-                cv2.circle(frame, (x, y), KEYPOINT_RADIUS, KEYPOINT_COLOR, -1)
-                if show_confidence:
-                    cv2.putText(
-                        frame,
-                        f"{confs[k]:.2f}",
-                        (x + 5, y - 5),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.3,
-                        (255, 255, 255),
-                        1,
-                    )
+KEY_NEXT = ord("n")
+KEY_PREV = ord("p")
+KEY_BASS_METER = ord("b")
 
 
 def parse_args() -> argparse.Namespace:
@@ -104,6 +35,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="posefx-studio: real-time body tracking pipeline")
     parser.add_argument("--config", required=True, help="Path to YAML config file")
     parser.add_argument("--input", default=None, help="Path to video file (uses webcam if not provided)")
+    parser.add_argument("--audio", default=None, help="Path to WAV file for audio input (uses mic if not provided)")
     return parser.parse_args()
 
 
@@ -124,11 +56,20 @@ def main() -> None:
 
     preview = PreviewWindow()
     fps_counter = FPSCounter()
+    engine = PartyEngine(config, platform)
 
-    pose_estimator = YOLOPoseEstimator(config.inference)
-    segmenter = YOLOSegmenter(config.inference)
+    # Start audio capture if enabled
+    audio: AudioCapture | None = None
+    if config.audio.enabled:
+        audio = AudioCapture(config.audio, file_path=args.audio)
+        audio.start()
 
-    logger.info("Starting pipeline — press 'q' or ESC to quit")
+    show_bass_meter = False
+
+    logger.info(
+        "Starting pipeline — 'n'/'p' cycle effects, 'b' toggle bass meter, 'q'/ESC quit"
+    )
+    logger.info("Available effects: %s", ", ".join(engine.get_renderer_names()))
 
     try:
         while True:
@@ -139,20 +80,17 @@ def main() -> None:
 
             fps_counter.tick()
 
-            # Segmentation mask (drawn first, underneath skeleton)
-            if config.debug.show_mask:
-                mask_result = segmenter.infer(frame)
-                draw_mask(frame, mask_result)
+            # Feed bass energy into the engine
+            if audio is not None:
+                engine.set_bass_energy(audio.bass_energy)
 
-            # Pose estimation + skeleton overlay
-            if config.debug.show_skeleton:
-                pose = pose_estimator.infer(frame)
-                draw_skeleton(frame, pose, config.debug.show_keypoint_confidence)
+            # Process frame through the engine (inference + effect rendering)
+            output = engine.process_frame(frame)
 
-            # FPS overlay
+            # HUD overlays
             if config.debug.show_fps:
                 cv2.putText(
-                    frame,
+                    output,
                     f"FPS: {fps_counter.fps:.1f}",
                     (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX,
@@ -161,10 +99,75 @@ def main() -> None:
                     2,
                 )
 
-            preview.show(frame)
+            # Show current effect name (top-right)
+            effect_name = engine.active_renderer.name
+            text_size = cv2.getTextSize(
+                effect_name, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2
+            )[0]
+            text_x = output.shape[1] - text_size[0] - 10
+            cv2.putText(
+                output,
+                effect_name,
+                (text_x, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (255, 255, 255),
+                2,
+            )
+
+            # Bass meter overlay (bottom-left bar + numeric value)
+            if show_bass_meter and audio is not None:
+                bass = audio.bass_energy
+                bar_w = 200
+                bar_h = 20
+                bar_x, bar_y = 10, output.shape[0] - 40
+                # Background
+                cv2.rectangle(
+                    output, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h),
+                    (40, 40, 40), -1,
+                )
+                # Fill — green to red gradient
+                fill_w = int(bar_w * bass)
+                if fill_w > 0:
+                    g = int(255 * (1 - bass))
+                    r = int(255 * bass)
+                    cv2.rectangle(
+                        output, (bar_x, bar_y), (bar_x + fill_w, bar_y + bar_h),
+                        (0, g, r), -1,
+                    )
+                # Border
+                cv2.rectangle(
+                    output, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h),
+                    (200, 200, 200), 1,
+                )
+                # Numeric value
+                cv2.putText(
+                    output,
+                    f"BASS: {bass:.2f}",
+                    (bar_x + bar_w + 10, bar_y + 16),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (200, 200, 200),
+                    1,
+                )
+
+            preview.show(output)
+
+            # Handle keyboard input
+            key = preview.last_key
+            if key == KEY_NEXT:
+                engine.next_renderer()
+            elif key == KEY_PREV:
+                engine.prev_renderer()
+            elif key == KEY_BASS_METER:
+                show_bass_meter = not show_bass_meter
+                logger.info("Bass meter: %s", "ON" if show_bass_meter else "OFF")
+
             if preview.should_quit():
                 break
     finally:
+        if audio is not None:
+            audio.stop()
         source.release()
         preview.destroy()
         logger.info("Pipeline stopped")
