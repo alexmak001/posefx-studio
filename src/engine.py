@@ -356,14 +356,17 @@ class PartyEngine:
         else:
             person_present = False
 
+        # Determine recording state and capture logic under the lock,
+        # but perform I/O (video write, photo encode) outside the lock
+        # to avoid blocking other threads (audio, future web server).
+        record_edited = False
+        record_raw = False
+
         with self._lock:
             self._person_present = person_present
 
-            if self._edited_video_recorder.is_recording or self._raw_video_recorder.is_recording:
-                if self._edited_video_recorder.is_recording:
-                    self._edited_video_recorder.add_frame(output)
-                if self._raw_video_recorder.is_recording:
-                    self._raw_video_recorder.add_frame(frame)
+            record_edited = self._edited_video_recorder.is_recording
+            record_raw = self._raw_video_recorder.is_recording
 
             should_capture_manual = (
                 self._countdown_deadline is not None and timestamp >= self._countdown_deadline
@@ -390,6 +393,12 @@ class PartyEngine:
                     self._auto_capture_due_at = None
             else:
                 self._auto_capture_due_at = None
+
+        # Video recording I/O outside the lock
+        if record_edited:
+            self._edited_video_recorder.add_frame(output)
+        if record_raw:
+            self._raw_video_recorder.add_frame(frame)
 
         if should_capture_manual or should_capture_auto:
             stem = f"photo_{time.strftime('%Y%m%d_%H%M%S')}_{int(time.time_ns() % 1_000_000_000):09d}"
