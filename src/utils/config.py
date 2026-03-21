@@ -25,6 +25,7 @@ class InferenceConfig:
     seg_model: str = "yolov8n-seg.pt"
     device: str = "mps"
     confidence_threshold: float = 0.5
+    inference_scale: float = 0.5
 
 
 @dataclass

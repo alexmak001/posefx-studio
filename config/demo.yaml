@@ -9,9 +9,10 @@ inference:
   seg_model: "yolov8n-seg.pt"
   device: "cpu"
   confidence_threshold: 0.5
+  inference_scale: 0.5            # downscale factor for inference (0.5 = half res, faster)
 
 effects:
-  default: "neon_skeleton"
+  default: "neon_wireframe"
 
 audio:
   enabled: true
