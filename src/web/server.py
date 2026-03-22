@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 
 if TYPE_CHECKING:
@@ -154,6 +154,53 @@ async def toggle_auto_capture() -> JSONResponse:
     """Toggle auto-capture mode."""
     enabled = _get_engine().toggle_auto_capture()
     return JSONResponse({"auto_capture": enabled})
+
+
+# ---------------------------------------------------------------------------
+# Avatar endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/api/avatar")
+async def upload_avatar(file: UploadFile) -> JSONResponse:
+    """Upload a custom avatar image for the Sprite Puppet effect."""
+    engine = _get_engine()
+    data = await file.read()
+    if len(data) > 10 * 1024 * 1024:  # 10MB limit
+        return JSONResponse({"error": "File too large (max 10MB)"}, status_code=413)
+    try:
+        path = engine.set_avatar(data)
+        return JSONResponse({"avatar": str(path)})
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+@app.delete("/api/avatar")
+async def clear_avatar() -> JSONResponse:
+    """Remove the custom avatar."""
+    _get_engine().clear_avatar()
+    return JSONResponse({"avatar": None})
+
+
+@app.post("/api/puppet-opacity")
+async def set_puppet_opacity(request: Request) -> JSONResponse:
+    """Set the Sprite Puppet skeleton opacity."""
+    body = await request.json()
+    value = body.get("value")
+    if value is None:
+        return JSONResponse({"error": "Missing 'value'"}, status_code=400)
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "Invalid value"}, status_code=400)
+    _get_engine().set_puppet_opacity(value)
+    return JSONResponse({"puppet_opacity": _get_engine().puppet_opacity})
+
+
+@app.get("/api/avatar")
+async def get_avatar_status() -> JSONResponse:
+    """Check if a custom avatar is set."""
+    has_avatar = _get_engine().avatar_image is not None
+    return JSONResponse({"has_avatar": has_avatar})
 
 
 # ---------------------------------------------------------------------------

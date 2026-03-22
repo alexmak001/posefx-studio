@@ -96,6 +96,9 @@ class PartyEngine:
         self._last_raw_recording_path: Path | None = None
         self._latest_frame: np.ndarray | None = None
         self._fps = 0.0
+        self._avatar_image: np.ndarray | None = None
+        self._avatar_dir = Path("data/avatars")
+        self._puppet_opacity = 0.7
 
         # Load inference models
         self._pose_estimator = YOLOPoseEstimator(config.inference)
@@ -174,6 +177,125 @@ class PartyEngine:
     def get_renderer_names(self) -> list[str]:
         """List all available effect names."""
         return [r.name for r in self._renderers]
+
+    def set_avatar(self, image_data: bytes) -> Path:
+        """Set a custom avatar image for the Sprite Puppet effect.
+
+        Automatically removes the background (white, checkerboard, or
+        solid color) and saves as BGRA PNG with transparency.
+
+        Args:
+            image_data: Raw image bytes (JPEG/PNG).
+
+        Returns:
+            Path to the saved avatar file.
+        """
+        self._avatar_dir.mkdir(parents=True, exist_ok=True)
+        path = self._avatar_dir / "current.png"
+
+        arr = np.frombuffer(image_data, dtype=np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_UNCHANGED)
+        if img is None:
+            raise ValueError("Could not decode image")
+
+        img = self._prepare_avatar(img)
+
+        cv2.imwrite(str(path), img)
+        self._avatar_image = img
+        logger.info("Custom avatar set: %s (%dx%d)", path, img.shape[1], img.shape[0])
+        return path
+
+    @staticmethod
+    def _prepare_avatar(img: np.ndarray) -> np.ndarray:
+        """Prepare an avatar image for the Sprite Puppet effect.
+
+        If the image already has meaningful alpha, use it as-is.
+        If a face is detected, crop to the face with an elliptical alpha mask.
+        If no face is detected (cartoon/meme), use the whole image as-is.
+
+        Args:
+            img: Input image (BGR or BGRA).
+
+        Returns:
+            Processed BGRA image ready for head overlay.
+        """
+        # If image already has meaningful alpha, keep it
+        if img.ndim == 3 and img.shape[2] == 4:
+            alpha = img[:, :, 3]
+            if np.mean(alpha < 250) > 0.2:
+                return img
+            bgr = img[:, :, :3]
+        else:
+            bgr = img[:, :, :3] if img.ndim == 3 else cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+
+        # Try to detect a face
+        cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        face_cascade = cv2.CascadeClassifier(cascade_path)
+        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
+
+        if len(faces) == 0:
+            # No face found — cartoon/meme, use whole image as-is (fully opaque)
+            alpha = np.full(bgr.shape[:2], 255, dtype=np.uint8)
+            return np.dstack([bgr, alpha])
+
+        # Take the largest face
+        areas = [w * h for (x, y, w, h) in faces]
+        fx, fy, fw, fh = faces[areas.index(max(areas))]
+
+        # Expand the crop region to include forehead/chin/sides (40% padding)
+        pad = 0.4
+        cx = fx + fw // 2
+        cy = fy + fh // 2
+        half_w = int(fw * (1 + pad) / 2)
+        half_h = int(fh * (1 + pad) / 2)
+        # Make it square-ish for better head mapping
+        half = max(half_w, half_h)
+
+        img_h, img_w = bgr.shape[:2]
+        x1 = max(0, cx - half)
+        y1 = max(0, cy - half)
+        x2 = min(img_w, cx + half)
+        y2 = min(img_h, cy + half)
+
+        cropped = bgr[y1:y2, x1:x2]
+        ch, cw = cropped.shape[:2]
+
+        # Create an elliptical alpha mask (soft edges)
+        alpha = np.zeros((ch, cw), dtype=np.uint8)
+        center = (cw // 2, ch // 2)
+        axes = (cw // 2, ch // 2)
+        cv2.ellipse(alpha, center, axes, 0, 0, 360, 255, -1, cv2.LINE_AA)
+        # Feather the edges
+        alpha = cv2.GaussianBlur(alpha, (15, 15), 0)
+
+        return np.dstack([cropped, alpha])
+
+    def clear_avatar(self) -> None:
+        """Remove the custom avatar."""
+        self._avatar_image = None
+        path = self._avatar_dir / "current.png"
+        if path.exists():
+            path.unlink()
+        logger.info("Custom avatar cleared")
+
+    @property
+    def avatar_image(self) -> np.ndarray | None:
+        """The current custom avatar image, or None."""
+        return self._avatar_image
+
+    @property
+    def puppet_opacity(self) -> float:
+        """Sprite puppet skeleton opacity 0.0-1.0."""
+        return self._puppet_opacity
+
+    def set_puppet_opacity(self, value: float) -> None:
+        """Set the puppet skeleton opacity.
+
+        Args:
+            value: Opacity 0.0 (invisible) to 1.0 (fully opaque).
+        """
+        self._puppet_opacity = max(0.0, min(1.0, float(value)))
 
     def trigger_photo(self, seconds: int | None = None) -> bool:
         """Start a photo countdown.
@@ -414,6 +536,8 @@ class PartyEngine:
             mask=mask,
             bass_energy=self._bass_energy,
             timestamp=time.monotonic(),
+            avatar=self._avatar_image,
+            puppet_opacity=self._puppet_opacity,
         )
 
         output = renderer.render(ctx)
@@ -541,6 +665,7 @@ class PartyEngine:
             "auto_capture": capture.auto_capture_enabled,
             "countdown": capture.countdown_value,
             "person_present": capture.person_present,
+            "puppet_opacity": self._puppet_opacity,
         }
 
     def close(self) -> Path | None:

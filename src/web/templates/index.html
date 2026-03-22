@@ -94,6 +94,11 @@ body { display: flex; flex-direction: column; }
 .lightbox-close { background: var(--surface2); color: var(--text); }
 .lightbox-download { background: var(--accent); color: #000; }
 .lightbox-delete { background: var(--red); color: #fff; }
+
+/* ---- Avatar upload ---- */
+.avatar-upload-btn { padding: 10px 16px; background: var(--surface2); color: var(--accent); border: 1px solid var(--accent); border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; text-align: center; }
+.avatar-clear-btn { padding: 10px 16px; background: var(--surface2); color: var(--red); border: 1px solid var(--red); border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.avatar-status { font-size: 13px; color: var(--green); display: flex; align-items: center; }
 </style>
 </head>
 <body>
@@ -128,6 +133,28 @@ body { display: flex; flex-direction: column; }
       <div class="toggle">
         <input type="checkbox" id="auto-toggle">
         <span class="slider"></span>
+      </div>
+    </div>
+
+    <div class="avatar-section" style="margin-top:var(--gap)">
+      <div class="toggle-row" style="flex-wrap:wrap;gap:8px;margin-bottom:8px">
+        <label style="width:100%;display:flex;justify-content:space-between;align-items:center">
+          Puppet Opacity
+          <span id="opacity-val" style="font-size:12px;color:var(--text2)">70%</span>
+        </label>
+        <input type="range" id="puppet-opacity" min="0" max="100" value="70"
+          style="width:100%;accent-color:var(--accent)">
+      </div>
+      <div class="toggle-row" style="flex-wrap:wrap;gap:8px">
+        <label>Custom Avatar (Sprite Puppet)</label>
+        <div style="display:flex;gap:8px;width:100%;margin-top:4px">
+          <label class="avatar-upload-btn" id="avatar-upload-label">
+            Upload Face
+            <input type="file" id="avatar-input" accept="image/*" capture="user" style="display:none">
+          </label>
+          <button class="avatar-clear-btn" id="avatar-clear" style="display:none">Clear</button>
+          <span class="avatar-status" id="avatar-status"></span>
+        </div>
       </div>
     </div>
   </div>
@@ -297,6 +324,68 @@ body { display: flex; flex-direction: column; }
     catch (e) { console.error('auto', e); }
   });
 
+  // ---- Puppet opacity slider ----
+  const opacitySlider = $id('puppet-opacity');
+  const opacityVal = $id('opacity-val');
+  let updatingOpacityFromWS = false;
+
+  opacitySlider.addEventListener('input', () => {
+    opacityVal.textContent = opacitySlider.value + '%';
+  });
+  opacitySlider.addEventListener('change', async () => {
+    if (updatingOpacityFromWS) return;
+    try {
+      await fetch('/api/puppet-opacity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: opacitySlider.value / 100 })
+      });
+    } catch (e) { console.error('opacity', e); }
+  });
+
+  // ---- Avatar upload ----
+  const avatarInput = $id('avatar-input');
+  const avatarClear = $id('avatar-clear');
+  const avatarStatus = $id('avatar-status');
+
+  avatarInput.addEventListener('change', async () => {
+    const file = avatarInput.files[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append('file', file);
+    avatarStatus.textContent = 'Uploading...';
+    try {
+      const res = await fetch('/api/avatar', { method: 'POST', body: form });
+      if (res.ok) {
+        avatarStatus.textContent = 'Avatar set!';
+        avatarClear.style.display = 'block';
+      } else {
+        const data = await res.json();
+        avatarStatus.textContent = data.error || 'Upload failed';
+      }
+    } catch (e) {
+      avatarStatus.textContent = 'Upload failed';
+      console.error('avatar upload', e);
+    }
+    avatarInput.value = '';
+  });
+
+  avatarClear.addEventListener('click', async () => {
+    try {
+      await fetch('/api/avatar', { method: 'DELETE' });
+      avatarStatus.textContent = '';
+      avatarClear.style.display = 'none';
+    } catch (e) { console.error('avatar clear', e); }
+  });
+
+  // Check avatar status on load
+  fetch('/api/avatar').then(r => r.json()).then(data => {
+    if (data.has_avatar) {
+      avatarStatus.textContent = 'Avatar set!';
+      avatarClear.style.display = 'block';
+    }
+  }).catch(() => {});
+
   // ---- Gallery ----
   document.querySelectorAll('.filter-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -432,6 +521,14 @@ body { display: flex; flex-direction: column; }
         updatingFromWS = true;
         autoToggle.checked = autoCapture;
         updatingFromWS = false;
+
+        if (state.puppet_opacity !== undefined && !opacitySlider.matches(':active')) {
+          updatingOpacityFromWS = true;
+          const pct = Math.round(state.puppet_opacity * 100);
+          opacitySlider.value = pct;
+          opacityVal.textContent = pct + '%';
+          updatingOpacityFromWS = false;
+        }
 
         // Countdown badge
         if (state.countdown) {

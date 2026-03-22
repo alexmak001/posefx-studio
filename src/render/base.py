@@ -25,6 +25,8 @@ class RenderContext:
     mask: MaskResult | None
     bass_energy: float
     timestamp: float
+    avatar: np.ndarray | None = None
+    puppet_opacity: float = 0.7
 
 
 class BaseRenderer(ABC):
