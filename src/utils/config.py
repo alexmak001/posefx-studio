@@ -89,6 +89,16 @@ class CaptureConfig:
 
 
 @dataclass
+class WebConfig:
+    """Web server settings."""
+    enabled: bool = True
+    host: str = "0.0.0.0"
+    port: int = 8000
+    stream_quality: int = 60
+    stream_max_fps: int = 15
+
+
+@dataclass
 class AppConfig:
     """Top-level application config."""
     camera: CameraConfig = field(default_factory=CameraConfig)
@@ -97,6 +107,7 @@ class AppConfig:
     effects: EffectsConfig = field(default_factory=EffectsConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
     capture: CaptureConfig = field(default_factory=CaptureConfig)
+    web: WebConfig = field(default_factory=WebConfig)
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -127,4 +138,5 @@ def load_config(path: str | Path) -> AppConfig:
         effects=EffectsConfig(**raw.get("effects", {})),
         audio=AudioConfig(**raw.get("audio", {})),
         capture=CaptureConfig(**raw.get("capture", {})),
+        web=WebConfig(**raw.get("web", {})),
     )

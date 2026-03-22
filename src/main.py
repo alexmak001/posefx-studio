@@ -7,6 +7,7 @@ Usage:
 
 import argparse
 import logging
+import socket
 
 import cv2
 
@@ -71,6 +72,18 @@ def main() -> None:
     if config.audio.enabled:
         audio = AudioCapture(config.audio, file_path=args.audio)
         audio.start()
+
+    # Start web server if enabled
+    if config.web.enabled:
+        from src.web.server import start_server
+        start_server(engine, config)
+        try:
+            local_ip = socket.gethostbyname(socket.gethostname())
+        except Exception:
+            local_ip = "localhost"
+        logger.info(
+            "Party hub ready at http://%s:%d", local_ip, config.web.port
+        )
 
     show_bass_meter = False
 
@@ -227,6 +240,9 @@ def main() -> None:
                     AUTO_COLOR,
                     2,
                 )
+
+            # Feed latest frame to web MJPEG stream
+            engine.set_latest_frame(preview_frame, fps_counter.fps)
 
             preview.show(preview_frame)
 

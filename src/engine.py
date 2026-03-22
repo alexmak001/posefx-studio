@@ -83,6 +83,8 @@ class PartyEngine:
         self._last_raw_photo_path: Path | None = None
         self._last_recording_path: Path | None = None
         self._last_raw_recording_path: Path | None = None
+        self._latest_frame: np.ndarray | None = None
+        self._fps = 0.0
 
         # Load inference models
         self._pose_estimator = YOLOPoseEstimator(config.inference)
@@ -426,6 +428,53 @@ class PartyEngine:
                     self._flash_until = timestamp + FLASH_DURATION_SECONDS
 
         return output
+
+    def set_latest_frame(self, frame: np.ndarray, fps: float) -> None:
+        """Store the latest composited frame for MJPEG streaming.
+
+        Called from the main loop after process_frame + HUD overlays.
+
+        Args:
+            frame: The composited BGR frame (with HUD).
+            fps: Current FPS reading.
+        """
+        self._latest_frame = frame
+        self._fps = fps
+
+    def get_latest_jpeg(self, quality: int = 60) -> bytes | None:
+        """Encode the latest frame as JPEG for MJPEG streaming.
+
+        Args:
+            quality: JPEG quality 0-100.
+
+        Returns:
+            JPEG bytes, or None if no frame is available yet.
+        """
+        frame = self._latest_frame
+        if frame is None:
+            return None
+        ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
+        if not ok:
+            return None
+        return buf.tobytes()
+
+    def get_state(self) -> dict:
+        """Return current engine state for WebSocket broadcast.
+
+        Returns:
+            Dict with effect, fps, recording, bass, auto_capture, person info.
+        """
+        capture = self.get_capture_state()
+        return {
+            "effect": self.active_renderer.name,
+            "effects": self.get_renderer_names(),
+            "fps": round(self._fps, 1),
+            "bass_energy": round(self._bass_energy, 3),
+            "is_recording": capture.is_recording,
+            "auto_capture": capture.auto_capture_enabled,
+            "countdown": capture.countdown_value,
+            "person_present": capture.person_present,
+        }
 
     def close(self) -> Path | None:
         """Release capture resources before shutdown.

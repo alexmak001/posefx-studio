@@ -10,7 +10,8 @@
       "Bash(uv sync:*)",
       "Bash(uv lock:*)",
       "Bash(.venv/bin/python -m pytest tests/ -v)",
-      "Bash(sudo pkill:*)"
+      "Bash(sudo pkill:*)",
+      "Bash(uv run:*)"
     ]
   }
 }

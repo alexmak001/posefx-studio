@@ -37,6 +37,13 @@ capture:
   auto_capture_interval: 15
   countdown_seconds: 3
 
+web:
+  enabled: true
+  host: "0.0.0.0"
+  port: 8000
+  stream_quality: 60         # JPEG quality for MJPEG stream (lower = less bandwidth)
+  stream_max_fps: 15         # cap stream FPS to save bandwidth
+
 debug:
   show_skeleton: true
   show_mask: true

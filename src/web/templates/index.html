@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>PoseFX Studio</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #111; --surface: #1a1a1a; --surface2: #252525;
+  --text: #eee; --text2: #999; --accent: #00e5ff; --accent-dim: #00839180;
+  --red: #ff3b3b; --green: #00e676; --orange: #ffab00;
+  --radius: 12px; --gap: 10px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+html, body { height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; overflow: hidden; -webkit-tap-highlight-color: transparent; }
+body { display: flex; flex-direction: column; }
+
+/* ---- Status bar ---- */
+.status-bar { display: flex; align-items: center; gap: 12px; padding: 6px 12px; font-size: 12px; color: var(--text2); background: #0a0a0a; flex-shrink: 0; }
+.status-bar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); }
+.status-bar .dot.connected { background: var(--green); }
+.bass-bar { width: 60px; height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+.bass-bar-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.15s; }
+
+/* ---- Content area ---- */
+.content { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: var(--gap); padding-bottom: calc(64px + var(--safe-bottom) + var(--gap)); }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* ---- Tab bar ---- */
+.tab-bar { display: flex; position: fixed; bottom: 0; left: 0; right: 0; background: #0a0a0a; border-top: 1px solid #222; padding-bottom: var(--safe-bottom); flex-shrink: 0; z-index: 100; }
+.tab-btn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px; font-size: 11px; color: var(--text2); background: none; border: none; cursor: pointer; min-height: 52px; }
+.tab-btn.active { color: var(--accent); }
+.tab-btn svg { width: 24px; height: 24px; fill: currentColor; }
+
+/* ---- Live FX tab ---- */
+.preview-container { width: 100%; border-radius: var(--radius); overflow: hidden; background: #000; margin-bottom: var(--gap); position: relative; }
+.preview-container img { width: 100%; display: block; }
+.preview-badge { position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.6); color: var(--green); font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+
+.effects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; margin-bottom: var(--gap); }
+.effect-btn { padding: 12px 6px; background: var(--surface); border: 2px solid transparent; border-radius: var(--radius); color: var(--text); font-size: 13px; cursor: pointer; text-align: center; min-height: 48px; display: flex; align-items: center; justify-content: center; transition: border-color 0.15s, background 0.15s; }
+.effect-btn:active { background: var(--surface2); }
+.effect-btn.active { border-color: var(--accent); background: var(--accent-dim); }
+
+.action-row { display: flex; gap: var(--gap); margin-bottom: var(--gap); }
+.snap-btn { flex: 2; padding: 18px; background: var(--accent); color: #000; font-size: 18px; font-weight: 700; border: none; border-radius: var(--radius); cursor: pointer; letter-spacing: 1px; }
+.snap-btn:active { opacity: 0.8; }
+.rec-btn { flex: 1; padding: 18px; background: var(--surface); color: var(--text); font-size: 14px; font-weight: 600; border: 2px solid transparent; border-radius: var(--radius); cursor: pointer; transition: all 0.15s; }
+.rec-btn.recording { background: var(--red); color: #fff; border-color: var(--red); }
+
+.toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: var(--surface); border-radius: var(--radius); }
+.toggle-row label { font-size: 14px; }
+.toggle { position: relative; width: 48px; height: 28px; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle .slider { position: absolute; inset: 0; background: var(--surface2); border-radius: 14px; cursor: pointer; transition: background 0.2s; }
+.toggle .slider::before { content: ''; position: absolute; width: 22px; height: 22px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: transform 0.2s; }
+.toggle input:checked + .slider { background: var(--accent); }
+.toggle input:checked + .slider::before { transform: translateX(20px); }
+
+/* ---- YouTube tab ---- */
+.search-row { display: flex; gap: 8px; margin-bottom: var(--gap); }
+.search-row input { flex: 1; padding: 12px; background: var(--surface); border: 1px solid #333; border-radius: var(--radius); color: var(--text); font-size: 16px; }
+.search-row button { padding: 12px 20px; background: var(--accent); color: #000; border: none; border-radius: var(--radius); font-weight: 600; cursor: pointer; }
+.stub-message { text-align: center; color: var(--text2); padding: 40px 20px; font-size: 16px; }
+.stub-message .icon { font-size: 48px; margin-bottom: 12px; display: block; }
+
+/* ---- AI Lab tab ---- */
+.card { background: var(--surface); border-radius: var(--radius); padding: 16px; margin-bottom: var(--gap); }
+.card h3 { font-size: 15px; margin-bottom: 10px; color: var(--accent); }
+.card p { font-size: 13px; color: var(--text2); margin-bottom: 10px; }
+.card button { width: 100%; padding: 12px; background: var(--surface2); color: var(--text2); border: 1px dashed #444; border-radius: 8px; font-size: 14px; cursor: not-allowed; }
+
+/* ---- Gallery tab ---- */
+.gallery-filters { display: flex; gap: 8px; margin-bottom: var(--gap); overflow-x: auto; flex-wrap: nowrap; }
+.filter-btn { padding: 8px 16px; background: var(--surface); border: none; border-radius: 20px; color: var(--text2); font-size: 13px; cursor: pointer; white-space: nowrap; }
+.filter-btn.active { background: var(--accent); color: #000; }
+.gallery-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.gallery-item { aspect-ratio: 1; border-radius: 8px; overflow: hidden; background: var(--surface); position: relative; cursor: pointer; }
+.gallery-item img { width: 100%; height: 100%; object-fit: cover; }
+.gallery-item video { width: 100%; height: 100%; object-fit: cover; }
+.gallery-item .badge { position: absolute; bottom: 4px; right: 4px; background: rgba(0,0,0,0.7); color: #fff; font-size: 10px; padding: 2px 6px; border-radius: 4px; }
+.gallery-empty { text-align: center; color: var(--text2); padding: 40px 20px; }
+
+/* ---- Lightbox ---- */
+.lightbox { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 200; flex-direction: column; align-items: center; justify-content: center; }
+.lightbox.open { display: flex; }
+.lightbox img, .lightbox video { max-width: 95%; max-height: 75vh; border-radius: 8px; }
+.lightbox-actions { display: flex; gap: 12px; margin-top: 16px; }
+.lightbox-actions button { padding: 12px 24px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.lightbox-close { background: var(--surface2); color: var(--text); }
+.lightbox-download { background: var(--accent); color: #000; }
+.lightbox-delete { background: var(--red); color: #fff; }
+</style>
+</head>
+<body>
+
+<!-- Status bar -->
+<div class="status-bar">
+  <div class="dot" id="ws-dot"></div>
+  <span id="status-fps">-- FPS</span>
+  <div class="bass-bar"><div class="bass-bar-fill" id="bass-fill"></div></div>
+  <span style="margin-left:auto" id="status-effect">--</span>
+</div>
+
+<!-- Content area -->
+<div class="content">
+
+  <!-- Tab 1: Live FX -->
+  <div class="tab-content active" id="tab-fx">
+    <div class="preview-container">
+      <img id="preview-img" src="/stream" alt="Live preview">
+      <div class="preview-badge" id="preview-badge" style="display:none"></div>
+    </div>
+
+    <div class="effects-grid" id="effects-grid"></div>
+
+    <div class="action-row">
+      <button class="snap-btn" id="snap-btn">SNAP</button>
+      <button class="rec-btn" id="rec-btn">REC</button>
+    </div>
+
+    <div class="toggle-row">
+      <label>Auto-capture</label>
+      <div class="toggle">
+        <input type="checkbox" id="auto-toggle">
+        <span class="slider"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 2: YouTube DJ -->
+  <div class="tab-content" id="tab-youtube">
+    <div class="search-row">
+      <input type="text" id="yt-search" placeholder="Search YouTube...">
+      <button id="yt-search-btn">Go</button>
+    </div>
+    <div id="yt-results">
+      <div class="stub-message">
+        <span class="icon">&#127911;</span>
+        YouTube DJ coming soon!<br>
+        <small>Search & play music videos on the TV</small>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 3: AI Lab -->
+  <div class="tab-content" id="tab-ai">
+    <div class="card">
+      <h3>Face Swap (Image)</h3>
+      <p>Upload your selfie + a target image to swap faces</p>
+      <button disabled>Coming Soon</button>
+    </div>
+    <div class="card">
+      <h3>Face Swap (Video)</h3>
+      <p>Upload your selfie + a short video clip</p>
+      <button disabled>Coming Soon</button>
+    </div>
+    <div class="card">
+      <h3>AI Edit</h3>
+      <p>Upload a photo and describe what you want changed</p>
+      <button disabled>Coming Soon</button>
+    </div>
+    <div id="ai-jobs"></div>
+  </div>
+
+  <!-- Tab 4: Gallery -->
+  <div class="tab-content" id="tab-gallery">
+    <div class="gallery-filters">
+      <button class="filter-btn active" data-filter="all">All</button>
+      <button class="filter-btn" data-filter="photo">Photos</button>
+      <button class="filter-btn" data-filter="recording">Videos</button>
+    </div>
+    <div class="gallery-grid" id="gallery-grid"></div>
+    <div class="gallery-empty" id="gallery-empty" style="display:none">No files yet. Take some photos!</div>
+  </div>
+
+</div>
+
+<!-- Tab bar -->
+<div class="tab-bar">
+  <button class="tab-btn active" data-tab="tab-fx">
+    <svg viewBox="0 0 24 24"><path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+    Live FX
+  </button>
+  <button class="tab-btn" data-tab="tab-youtube">
+    <svg viewBox="0 0 24 24"><path d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" fill="currentColor"/><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+    YouTube
+  </button>
+  <button class="tab-btn" data-tab="tab-ai">
+    <svg viewBox="0 0 24 24"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    AI Lab
+  </button>
+  <button class="tab-btn" data-tab="tab-gallery">
+    <svg viewBox="0 0 24 24"><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Gallery
+  </button>
+</div>
+
+<!-- Lightbox -->
+<div class="lightbox" id="lightbox">
+  <div id="lightbox-media"></div>
+  <div class="lightbox-actions">
+    <button class="lightbox-close" id="lb-close">Close</button>
+    <a id="lb-download" class="lightbox-actions"><button class="lightbox-download">Download</button></a>
+    <button class="lightbox-delete" id="lb-delete">Delete</button>
+  </div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // ---- State ----
+  let currentEffect = '';
+  let effects = [];
+  let isRecording = false;
+  let autoCapture = false;
+  let galleryItems = [];
+  let galleryFilter = 'all';
+  let lightboxFile = null;
+
+  // ---- DOM refs ----
+  const $id = id => document.getElementById(id);
+  const wsDot = $id('ws-dot');
+  const statusFps = $id('status-fps');
+  const bassFill = $id('bass-fill');
+  const statusEffect = $id('status-effect');
+  const effectsGrid = $id('effects-grid');
+  const snapBtn = $id('snap-btn');
+  const recBtn = $id('rec-btn');
+  const autoToggle = $id('auto-toggle');
+  const previewBadge = $id('preview-badge');
+  const galleryGrid = $id('gallery-grid');
+  const galleryEmpty = $id('gallery-empty');
+  const lightbox = $id('lightbox');
+  const lightboxMedia = $id('lightbox-media');
+  const lbClose = $id('lb-close');
+  const lbDownload = $id('lb-download');
+  const lbDelete = $id('lb-delete');
+
+  // ---- Tab switching ----
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+      $id(btn.dataset.tab).classList.add('active');
+
+      if (btn.dataset.tab === 'tab-gallery') loadGallery();
+    });
+  });
+
+  // ---- Effects grid ----
+  function renderEffects() {
+    effectsGrid.innerHTML = '';
+    effects.forEach(name => {
+      const btn = document.createElement('button');
+      btn.className = 'effect-btn' + (name === currentEffect ? ' active' : '');
+      btn.textContent = name;
+      btn.addEventListener('click', () => setEffect(name));
+      effectsGrid.appendChild(btn);
+    });
+  }
+
+  async function setEffect(name) {
+    try {
+      await fetch('/api/effects/' + encodeURIComponent(name), { method: 'POST' });
+      currentEffect = name;
+      renderEffects();
+    } catch (e) { console.error('setEffect', e); }
+  }
+
+  // ---- Snap / Record / Auto ----
+  snapBtn.addEventListener('click', async () => {
+    try { await fetch('/api/photo', { method: 'POST' }); }
+    catch (e) { console.error('snap', e); }
+  });
+
+  recBtn.addEventListener('click', async () => {
+    try {
+      if (isRecording) {
+        await fetch('/api/record/stop', { method: 'POST' });
+      } else {
+        await fetch('/api/record/start', { method: 'POST' });
+      }
+    } catch (e) { console.error('rec', e); }
+  });
+
+  autoToggle.addEventListener('change', async () => {
+    try { await fetch('/api/auto-capture/toggle', { method: 'POST' }); }
+    catch (e) { console.error('auto', e); }
+  });
+
+  // ---- Gallery ----
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      galleryFilter = btn.dataset.filter;
+      renderGallery();
+    });
+  });
+
+  async function loadGallery() {
+    try {
+      const res = await fetch('/api/gallery');
+      const data = await res.json();
+      galleryItems = data.items || [];
+      renderGallery();
+    } catch (e) { console.error('loadGallery', e); }
+  }
+
+  function renderGallery() {
+    const filtered = galleryFilter === 'all'
+      ? galleryItems
+      : galleryItems.filter(i => i.type === galleryFilter);
+
+    galleryGrid.innerHTML = '';
+    galleryEmpty.style.display = filtered.length === 0 ? 'block' : 'none';
+
+    filtered.forEach(item => {
+      const div = document.createElement('div');
+      div.className = 'gallery-item';
+      const url = '/api/gallery/file?path=' + encodeURIComponent(item.filename);
+
+      if (item.type === 'recording') {
+        const vid = document.createElement('video');
+        vid.src = url;
+        vid.muted = true;
+        vid.preload = 'metadata';
+        div.appendChild(vid);
+        const badge = document.createElement('span');
+        badge.className = 'badge';
+        badge.textContent = 'VID';
+        div.appendChild(badge);
+      } else {
+        const img = document.createElement('img');
+        img.src = url;
+        img.loading = 'lazy';
+        div.appendChild(img);
+      }
+
+      div.addEventListener('click', () => openLightbox(item));
+      galleryGrid.appendChild(div);
+    });
+  }
+
+  // ---- Lightbox ----
+  function openLightbox(item) {
+    lightboxFile = item;
+    const url = '/api/gallery/file?path=' + encodeURIComponent(item.filename);
+    lightboxMedia.innerHTML = '';
+
+    if (item.type === 'recording') {
+      const vid = document.createElement('video');
+      vid.src = url;
+      vid.controls = true;
+      vid.autoplay = true;
+      vid.style.maxWidth = '95%';
+      vid.style.maxHeight = '75vh';
+      lightboxMedia.appendChild(vid);
+    } else {
+      const img = document.createElement('img');
+      img.src = url;
+      lightboxMedia.appendChild(img);
+    }
+
+    lbDownload.href = url;
+    lbDownload.download = item.name;
+    lightbox.classList.add('open');
+  }
+
+  lbClose.addEventListener('click', () => {
+    lightbox.classList.remove('open');
+    lightboxMedia.innerHTML = '';
+    lightboxFile = null;
+  });
+
+  lbDelete.addEventListener('click', async () => {
+    if (!lightboxFile) return;
+    if (!confirm('Delete this file?')) return;
+    try {
+      await fetch('/api/gallery/file?path=' + encodeURIComponent(lightboxFile.filename), { method: 'DELETE' });
+      lightbox.classList.remove('open');
+      lightboxMedia.innerHTML = '';
+      lightboxFile = null;
+      loadGallery();
+    } catch (e) { console.error('delete', e); }
+  });
+
+  // ---- WebSocket ----
+  let ws = null;
+  let wsRetryDelay = 1000;
+
+  function connectWS() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(proto + '//' + location.host + '/ws');
+
+    ws.onopen = () => {
+      wsDot.classList.add('connected');
+      wsRetryDelay = 1000;
+    };
+
+    ws.onmessage = (evt) => {
+      try {
+        const state = JSON.parse(evt.data);
+        statusFps.textContent = state.fps + ' FPS';
+        bassFill.style.width = (state.bass_energy * 100) + '%';
+        statusEffect.textContent = state.effect;
+
+        if (state.effects && state.effects.length > 0 && effects.length === 0) {
+          effects = state.effects;
+          renderEffects();
+        }
+
+        if (state.effect !== currentEffect) {
+          currentEffect = state.effect;
+          renderEffects();
+        }
+
+        isRecording = state.is_recording;
+        recBtn.textContent = isRecording ? 'STOP' : 'REC';
+        recBtn.classList.toggle('recording', isRecording);
+
+        autoCapture = state.auto_capture;
+        autoToggle.checked = autoCapture;
+
+        // Countdown badge
+        if (state.countdown) {
+          previewBadge.textContent = state.countdown;
+          previewBadge.style.display = 'block';
+        } else {
+          previewBadge.style.display = 'none';
+        }
+      } catch (e) { console.error('ws parse', e); }
+    };
+
+    ws.onclose = () => {
+      wsDot.classList.remove('connected');
+      setTimeout(connectWS, wsRetryDelay);
+      wsRetryDelay = Math.min(wsRetryDelay * 1.5, 10000);
+    };
+
+    ws.onerror = () => { ws.close(); };
+  }
+
+  // ---- Init ----
+  connectWS();
+
+  // Load effects list on startup (in case WS is slow)
+  fetch('/api/effects').then(r => r.json()).then(data => {
+    if (data.effects && effects.length === 0) {
+      effects = data.effects;
+      renderEffects();
+    }
+  }).catch(() => {});
+
+  fetch('/api/effects/current').then(r => r.json()).then(data => {
+    if (data.effect) {
+      currentEffect = data.effect;
+      renderEffects();
+    }
+  }).catch(() => {});
+
+})();
+</script>
+</body>
+</html>
