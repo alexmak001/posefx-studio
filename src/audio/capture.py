@@ -1,8 +1,10 @@
-"""Audio capture with real-time bass energy extraction."""
+"""Audio capture with real-time bass energy extraction and recording."""
 
 import logging
+import struct
 import threading
 import time
+import wave
 from pathlib import Path
 
 import numpy as np
@@ -36,6 +38,9 @@ class AudioCapture:
         self._pa = None
         self._thread: threading.Thread | None = None
         self._running = False
+        self._recording = False
+        self._recording_chunks: list[bytes] = []
+        self._recording_lock = threading.Lock()
 
     @property
     def bass_energy(self) -> float:
@@ -134,6 +139,47 @@ class AudioCapture:
         self._cleanup_pa()
         logger.info("Audio capture stopped")
 
+    def start_recording(self) -> None:
+        """Start buffering raw audio chunks for later WAV export."""
+        with self._recording_lock:
+            self._recording_chunks = []
+            self._recording = True
+        logger.info("Audio recording started")
+
+    def stop_recording(self, output_path: str | Path) -> Path | None:
+        """Stop recording and write buffered audio to a WAV file.
+
+        Args:
+            output_path: Path for the output WAV file.
+
+        Returns:
+            Path to the saved WAV, or None if no audio was captured.
+        """
+        with self._recording_lock:
+            self._recording = False
+            chunks = self._recording_chunks
+            self._recording_chunks = []
+
+        if not chunks:
+            logger.info("No audio chunks captured")
+            return None
+
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        sample_rate = self._config.sample_rate
+        try:
+            with wave.open(str(path), "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)  # 16-bit
+                wf.setframerate(sample_rate)
+                wf.writeframes(b"".join(chunks))
+            logger.info("Audio recording saved: %s (%d chunks)", path, len(chunks))
+            return path
+        except Exception:
+            logger.exception("Failed to write audio WAV")
+            return None
+
     def _cleanup_pa(self) -> None:
         """Release PyAudio resources."""
         if self._stream is not None:
@@ -205,6 +251,12 @@ class AudioCapture:
                 data = self._stream.read(self._config.chunk_size, exception_on_overflow=False)
                 samples = np.frombuffer(data, dtype=np.int16).astype(np.float32)
                 self._process_samples(samples, self._config.sample_rate, state)
+
+                # Buffer raw audio if recording
+                if self._recording:
+                    with self._recording_lock:
+                        if self._recording:
+                            self._recording_chunks.append(data)
             except Exception:
                 logger.debug("Audio read error", exc_info=True)
                 continue

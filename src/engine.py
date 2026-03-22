@@ -1,11 +1,16 @@
 """Mode-based engine for managing renderers and inference."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 import logging
 import math
+import shutil
+import subprocess
 import threading
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import cv2
 import numpy as np
@@ -28,8 +33,12 @@ from src.render.effects.shadow_clones import ShadowClonesRenderer
 from src.render.effects.sprite_puppet import SpritePuppetRenderer
 from src.utils.config import AppConfig
 
+if TYPE_CHECKING:
+    from src.audio.capture import AudioCapture
+
 logger = logging.getLogger(__name__)
 FLASH_DURATION_SECONDS = 0.2
+_HAS_FFMPEG = shutil.which("ffmpeg") is not None
 
 
 @dataclass(frozen=True)
@@ -58,11 +67,13 @@ class PartyEngine:
         platform: Detected platform string ('mac', 'jetson', 'cpu').
     """
 
-    def __init__(self, config: AppConfig, platform: str) -> None:
+    def __init__(self, config: AppConfig, platform: str,
+                 audio_capture: AudioCapture | None = None) -> None:
         self._config = config
         self._platform = platform
         self._lock = threading.Lock()
         self._bass_energy = 0.0
+        self._audio_capture = audio_capture
         self._photo_capture = PhotoCapture(config.capture.photo_quality)
         self._edited_video_recorder = VideoRecorder()
         self._raw_video_recorder = VideoRecorder()
@@ -219,10 +230,16 @@ class PartyEngine:
 
             self._last_recording_path = edited_path
             self._last_raw_recording_path = raw_path
+            self._recording_stem = stem
+
+        # Start audio recording alongside video
+        if self._audio_capture is not None:
+            self._audio_capture.start_recording()
+
         return edited_path or raw_path
 
     def stop_recording(self) -> Path | None:
-        """Stop the active recording, if any."""
+        """Stop the active recording, mux audio if available."""
         with self._lock:
             edited_path = self._edited_video_recorder.stop()
             raw_path = self._raw_video_recorder.stop()
@@ -230,7 +247,57 @@ class PartyEngine:
                 self._last_recording_path = edited_path
             if raw_path is not None:
                 self._last_raw_recording_path = raw_path
+
+        # Stop audio recording and mux into the video files
+        if self._audio_capture is not None:
+            wav_dir = self._recording_dir / "tmp"
+            wav_path = wav_dir / f"{getattr(self, '_recording_stem', 'audio')}.wav"
+            saved_wav = self._audio_capture.stop_recording(wav_path)
+            if saved_wav and _HAS_FFMPEG:
+                for video_path in (edited_path, raw_path):
+                    if video_path is not None:
+                        self._mux_audio(video_path, saved_wav)
+                # Clean up temp WAV
+                try:
+                    saved_wav.unlink(missing_ok=True)
+                    if wav_dir.exists() and not any(wav_dir.iterdir()):
+                        wav_dir.rmdir()
+                except Exception:
+                    pass
+
         return edited_path or raw_path
+
+    @staticmethod
+    def _mux_audio(video_path: Path, audio_path: Path) -> None:
+        """Mux audio into an existing video file using ffmpeg.
+
+        Replaces the video file in-place.
+
+        Args:
+            video_path: Path to the MP4 video.
+            audio_path: Path to the WAV audio.
+        """
+        tmp_out = video_path.with_suffix(".tmp.mp4")
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(video_path),
+            "-i", str(audio_path),
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-shortest",
+            "-loglevel", "warning",
+            str(tmp_out),
+        ]
+        try:
+            subprocess.run(cmd, check=True, timeout=60)
+            tmp_out.replace(video_path)
+            logger.info("Muxed audio into %s", video_path)
+        except Exception:
+            logger.warning("Failed to mux audio into %s", video_path, exc_info=True)
+            try:
+                tmp_out.unlink(missing_ok=True)
+            except Exception:
+                pass
 
     def toggle_auto_capture(self) -> bool:
         """Toggle periodic auto-capture mode.

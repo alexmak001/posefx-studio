@@ -129,8 +129,11 @@ async def start_recording() -> JSONResponse:
     if capture_state.is_recording:
         return JSONResponse({"error": "Already recording"}, status_code=409)
     try:
+        # Use actual measured FPS, not config value, to avoid speedup on playback
+        actual_fps = engine.get_state()["fps"]
+        record_fps = actual_fps if actual_fps >= 5 else config.camera.fps
         path = engine.start_recording(
-            fps=config.camera.fps,
+            fps=record_fps,
             resolution=(config.camera.width, config.camera.height),
         )
         return JSONResponse({"recording": str(path)})

@@ -222,6 +222,7 @@ body { display: flex; flex-direction: column; }
   let galleryItems = [];
   let galleryFilter = 'all';
   let lightboxFile = null;
+  let updatingFromWS = false;
 
   // ---- DOM refs ----
   const $id = id => document.getElementById(id);
@@ -291,6 +292,7 @@ body { display: flex; flex-direction: column; }
   });
 
   autoToggle.addEventListener('change', async () => {
+    if (updatingFromWS) return;
     try { await fetch('/api/auto-capture/toggle', { method: 'POST' }); }
     catch (e) { console.error('auto', e); }
   });
@@ -427,7 +429,9 @@ body { display: flex; flex-direction: column; }
         recBtn.classList.toggle('recording', isRecording);
 
         autoCapture = state.auto_capture;
+        updatingFromWS = true;
         autoToggle.checked = autoCapture;
+        updatingFromWS = false;
 
         // Countdown badge
         if (state.countdown) {

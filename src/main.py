@@ -65,13 +65,14 @@ def main() -> None:
 
     preview = PreviewWindow()
     fps_counter = FPSCounter()
-    engine = PartyEngine(config, platform)
 
-    # Start audio capture if enabled
+    # Start audio capture if enabled (before engine so we can pass it in)
     audio: AudioCapture | None = None
     if config.audio.enabled:
         audio = AudioCapture(config.audio, file_path=args.audio)
         audio.start()
+
+    engine = PartyEngine(config, platform, audio_capture=audio)
 
     # Start web server if enabled
     if config.web.enabled:
@@ -263,8 +264,9 @@ def main() -> None:
                 else:
                     resolution = (frame.shape[1], frame.shape[0])
                     try:
+                        record_fps = fps_counter.fps if fps_counter.fps >= 5 else config.camera.fps
                         path = engine.start_recording(
-                            fps_counter.fps or config.camera.fps,
+                            record_fps,
                             resolution,
                         )
                     except Exception:
