@@ -1,4 +1,8 @@
-"""Snowfall renderer — snowflake and horse-head sprites falling, avoiding faces."""
+"""Snowfall Custom renderer — user-uploaded images falling across the scene.
+
+Two upload slots for custom images. Images are cleaned (face crop or
+background removal) and saved to data/snowfall/ as RGBA PNGs.
+"""
 
 import math
 import random
@@ -10,19 +14,17 @@ import numpy as np
 from src.render.base import BaseRenderer, RenderContext
 from src.render.effects import CONFIDENCE_MIN
 
-_ASSETS_DIR = Path("data/assets")
+_CUSTOM_DIR = Path("data/snowfall")
 _MAX_FLAKES = 200
 
 
 class _FallingSprite:
-    """A single falling sprite."""
-
     __slots__ = ("x", "y", "vx", "vy", "size", "wobble_phase", "sprite_type")
 
     def __init__(self, x: float, y: float, sprite_type: int, size: int) -> None:
         self.x = x
         self.y = y
-        self.sprite_type = sprite_type  # 0 = snowflake, 1 = horse
+        self.sprite_type = sprite_type
         self.size = size
         self.vy = random.uniform(1.0, 3.0)
         self.vx = random.uniform(-0.3, 0.3)
@@ -38,64 +40,70 @@ class _FallingSprite:
             self.x = -20
 
 
-def _random_size(sprite_type: int, scale: float) -> int:
-    """Generate a random size for a sprite with variation."""
-    if sprite_type == 0:  # snowflake
-        base = random.randint(22, 55)
-    else:  # horse
-        base = random.randint(16, 35)
-    return max(8, int(base * scale))
+class SnowfallCustomRenderer(BaseRenderer):
+    """User-uploaded images falling across the scene, avoiding faces.
 
-
-class DigitalRainRenderer(BaseRenderer):
-    """Snowflakes and horse heads falling across the scene, avoiding faces.
-
-    Uses RGBA sprites from data/assets/. Size controllable via
-    snowfall_scale (0.3 - 3.0, default 1.0).
+    Loads up to 2 custom RGBA sprites from data/snowfall/.
+    Shows a placeholder message if no custom images are uploaded.
+    Size controllable via snowfall_custom_scale (0.3 - 3.0, default 1.0).
     """
 
     def __init__(self) -> None:
         self._sprites: list[_FallingSprite] = []
         self._sprite_cache: dict[tuple[int, int], np.ndarray] = {}
-        self._snowflake_src: np.ndarray | None = None
-        self._horse_src: np.ndarray | None = None
+        self._src_images: list[np.ndarray] = []
         self._loaded = False
         self._scale = 1.0
         self._density = 1.0
+        self._custom_dir_mtime: float = 0.0
 
     @property
-    def snowfall_scale(self) -> float:
+    def snowfall_custom_scale(self) -> float:
         return self._scale
 
-    @snowfall_scale.setter
-    def snowfall_scale(self, value: float) -> None:
+    @snowfall_custom_scale.setter
+    def snowfall_custom_scale(self, value: float) -> None:
         self._scale = max(0.3, min(3.0, float(value)))
         self._sprite_cache.clear()
 
     @property
-    def snowfall_density(self) -> float:
+    def snowfall_custom_density(self) -> float:
         return self._density
 
-    @snowfall_density.setter
-    def snowfall_density(self, value: float) -> None:
+    @snowfall_custom_density.setter
+    def snowfall_custom_density(self, value: float) -> None:
         self._density = max(0.1, min(3.0, float(value)))
 
     def _load_assets(self) -> None:
-        sf_path = _ASSETS_DIR / "snowflake.png"
-        if sf_path.exists():
-            self._snowflake_src = cv2.imread(str(sf_path), cv2.IMREAD_UNCHANGED)
-        hr_path = _ASSETS_DIR / "horse.png"
-        if hr_path.exists():
-            self._horse_src = cv2.imread(str(hr_path), cv2.IMREAD_UNCHANGED)
+        self._src_images = []
+        self._sprite_cache.clear()
+        self._sprites.clear()
+
+        if _CUSTOM_DIR.exists():
+            images = sorted(
+                p for p in _CUSTOM_DIR.iterdir()
+                if p.suffix.lower() == ".png" and not p.name.startswith(".")
+            )
+            for path in images[:2]:
+                img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+                if img is not None and img.ndim == 3 and img.shape[2] == 4:
+                    self._src_images.append(img)
+            self._custom_dir_mtime = _CUSTOM_DIR.stat().st_mtime
+
         self._loaded = True
 
+    def reload_custom_images(self) -> None:
+        """Force reload after upload/delete."""
+        self._loaded = False
+
     def _get_sprite(self, sprite_type: int, size: int) -> np.ndarray | None:
+        if not self._src_images:
+            return None
         key = (sprite_type, size)
         if key in self._sprite_cache:
             return self._sprite_cache[key]
-        src = self._snowflake_src if sprite_type == 0 else self._horse_src
-        if src is None:
-            return None
+        idx = sprite_type % len(self._src_images)
+        src = self._src_images[idx]
         s = max(4, size)
         resized = cv2.resize(src, (s, s), interpolation=cv2.INTER_AREA)
         self._sprite_cache[key] = resized
@@ -104,8 +112,10 @@ class DigitalRainRenderer(BaseRenderer):
     def _make_sprite(self, w: int, h: int, y_min: float, y_max: float) -> _FallingSprite:
         x = random.uniform(0, w)
         y = random.uniform(y_min, y_max)
-        st = 0 if random.random() < 0.5 else 1
-        sz = _random_size(st, self._scale)
+        num_types = max(1, len(self._src_images))
+        st = random.randint(0, num_types - 1)
+        base = random.randint(20, 50)
+        sz = max(8, int(base * self._scale))
         return _FallingSprite(x, y, st, sz)
 
     def render(self, ctx: RenderContext) -> np.ndarray:
@@ -115,9 +125,21 @@ class DigitalRainRenderer(BaseRenderer):
         if not self._loaded:
             self._load_assets()
 
-        scale = getattr(ctx, 'snowfall_scale', None)
-        if scale is not None and scale != self._scale:
-            self.snowfall_scale = scale
+        # Auto-detect new uploads
+        if _CUSTOM_DIR.exists():
+            try:
+                mtime = _CUSTOM_DIR.stat().st_mtime
+                if mtime != self._custom_dir_mtime:
+                    self._load_assets()
+            except OSError:
+                pass
+
+        # No custom images — show hint text
+        if not self._src_images:
+            cv2.putText(output, "Upload custom images in the web app",
+                        (w // 2 - 200, h // 2), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7, (100, 100, 100), 2, cv2.LINE_AA)
+            return output
 
         target = max(10, int(_MAX_FLAKES * self._density))
         if len(self._sprites) == 0:
@@ -176,43 +198,38 @@ class DigitalRainRenderer(BaseRenderer):
                       w: int, h: int) -> None:
         s = sprite.size
         img = self._get_sprite(sprite.sprite_type, s)
+        if img is None:
+            return
 
-        if img is not None and img.ndim == 3 and img.shape[2] == 4:
-            half = s // 2
-            x1, y1 = int(sprite.x) - half, int(sprite.y) - half
-            x2, y2 = x1 + s, y1 + s
+        half = s // 2
+        x1, y1 = int(sprite.x) - half, int(sprite.y) - half
+        x2, y2 = x1 + s, y1 + s
 
-            sx1 = max(0, -x1)
-            sy1 = max(0, -y1)
-            dx1 = max(0, x1)
-            dy1 = max(0, y1)
-            dx2 = min(w, x2)
-            dy2 = min(h, y2)
-            sx2 = sx1 + (dx2 - dx1)
-            sy2 = sy1 + (dy2 - dy1)
+        sx1 = max(0, -x1)
+        sy1 = max(0, -y1)
+        dx1 = max(0, x1)
+        dy1 = max(0, y1)
+        dx2 = min(w, x2)
+        dy2 = min(h, y2)
+        sx2 = sx1 + (dx2 - dx1)
+        sy2 = sy1 + (dy2 - dy1)
 
-            if dx2 <= dx1 or dy2 <= dy1 or sy2 > s or sx2 > s:
-                return
+        if dx2 <= dx1 or dy2 <= dy1 or sy2 > s or sx2 > s:
+            return
 
-            roi = img[sy1:sy2, sx1:sx2]
-            if roi.shape[0] == 0 or roi.shape[1] == 0:
-                return
+        roi = img[sy1:sy2, sx1:sx2]
+        if roi.shape[0] == 0 or roi.shape[1] == 0:
+            return
 
-            alpha = roi[:, :, 3:4].astype(np.float32) / 255.0
-            bgr = roi[:, :, :3]
-            frame[dy1:dy2, dx1:dx2] = (
-                bgr * alpha + frame[dy1:dy2, dx1:dx2] * (1.0 - alpha)
-            ).astype(np.uint8)
-        else:
-            fx, fy = int(sprite.x), int(sprite.y)
-            if 0 <= fy < h and 0 <= fx < w:
-                r = s // 2
-                cv2.line(frame, (fx - r, fy), (fx + r, fy), (255, 255, 255), 1, cv2.LINE_AA)
-                cv2.line(frame, (fx, fy - r), (fx, fy + r), (255, 255, 255), 1, cv2.LINE_AA)
+        alpha = roi[:, :, 3:4].astype(np.float32) / 255.0
+        bgr = roi[:, :, :3]
+        frame[dy1:dy2, dx1:dx2] = (
+            bgr * alpha + frame[dy1:dy2, dx1:dx2] * (1.0 - alpha)
+        ).astype(np.uint8)
 
     @property
     def name(self) -> str:
-        return "Snowfall"
+        return "Snowfall Custom"
 
     @property
     def needs_pose(self) -> bool:

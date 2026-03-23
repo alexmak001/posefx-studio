@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import importlib
 import logging
 import math
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -29,7 +31,7 @@ from src.render.effects.motion_trails import MotionTrailsRenderer
 from src.render.effects.neon_wireframe import NeonWireframeRenderer
 from src.render.effects.particle_dissolve import ParticleDissolveRenderer
 from src.render.effects.passthrough import PassthroughRenderer
-from src.render.effects.shadow_clones import ShadowClonesRenderer
+from src.render.effects.snowfall_custom import SnowfallCustomRenderer
 from src.render.effects.sprite_puppet import SpritePuppetRenderer
 from src.utils.config import AppConfig
 
@@ -99,6 +101,11 @@ class PartyEngine:
         self._avatar_image: np.ndarray | None = None
         self._avatar_dir = Path("data/avatars")
         self._puppet_opacity = 0.7
+        self._snowfall_scale = 1.0
+        self._snowfall_custom_scale = 1.0
+        self._snowfall_density = 1.0
+        self._snowfall_custom_density = 1.0
+        self._brightness = 1.0
 
         # Load inference models
         self._pose_estimator = YOLOPoseEstimator(config.inference)
@@ -111,7 +118,7 @@ class PartyEngine:
             MotionTrailsRenderer(),
             GlitchBodyRenderer(),
             DigitalRainRenderer(),
-            ShadowClonesRenderer(),
+            SnowfallCustomRenderer(),
             ParticleDissolveRenderer(),
             HaloWingsRenderer(),
             SpritePuppetRenderer(),
@@ -177,6 +184,82 @@ class PartyEngine:
     def get_renderer_names(self) -> list[str]:
         """List all available effect names."""
         return [r.name for r in self._renderers]
+
+    def reload_effects(self) -> list[str]:
+        """Hot-reload all effect renderer modules and reinstantiate them.
+
+        Reimports every renderer module from disk, creates fresh instances,
+        and swaps them in. Camera, models, and state are preserved.
+
+        Returns:
+            List of reloaded effect names.
+        """
+        # Modules to reload (in import order — utils first, then effects)
+        module_names = [
+            "src.render.effects",
+            "src.render.utils",
+            "src.render.base",
+            "src.render.effects.neon_wireframe",
+            "src.render.effects.energy_aura",
+            "src.render.effects.motion_trails",
+            "src.render.effects.glitch_body",
+            "src.render.effects.digital_rain",
+            "src.render.effects.snowfall_custom",
+            "src.render.effects.particle_dissolve",
+            "src.render.effects.halo_wings",
+            "src.render.effects.sprite_puppet",
+            "src.render.effects.passthrough",
+        ]
+
+        with self._lock:
+            current_name = self.active_renderer.name
+
+            # Reload all modules
+            for mod_name in module_names:
+                if mod_name in sys.modules:
+                    try:
+                        importlib.reload(sys.modules[mod_name])
+                    except Exception:
+                        logger.exception("Failed to reload %s", mod_name)
+                        raise
+
+            # Re-import classes from freshly reloaded modules
+            from src.render.effects.neon_wireframe import NeonWireframeRenderer as NWR
+            from src.render.effects.energy_aura import EnergyAuraRenderer as EAR
+            from src.render.effects.motion_trails import MotionTrailsRenderer as MTR
+            from src.render.effects.glitch_body import GlitchBodyRenderer as GBR
+            from src.render.effects.digital_rain import DigitalRainRenderer as DRR
+            from src.render.effects.snowfall_custom import SnowfallCustomRenderer as SCR
+            from src.render.effects.particle_dissolve import ParticleDissolveRenderer as PDR
+            from src.render.effects.halo_wings import HaloWingsRenderer as HWR
+            from src.render.effects.sprite_puppet import SpritePuppetRenderer as SPR
+            from src.render.effects.passthrough import PassthroughRenderer as PTR
+
+            self._renderers = [
+                NWR(), EAR(), MTR(), GBR(), DRR(), SCR(), PDR(), HWR(), SPR(), PTR(),
+            ]
+            self._renderer_map = {r.name: r for r in self._renderers}
+
+            # Re-apply saved state to fresh renderer instances
+            for r in self._renderers:
+                if hasattr(r, 'snowfall_scale'):
+                    r.snowfall_scale = self._snowfall_scale
+                if hasattr(r, 'snowfall_density'):
+                    r.snowfall_density = self._snowfall_density
+                if hasattr(r, 'snowfall_custom_scale'):
+                    r.snowfall_custom_scale = self._snowfall_custom_scale
+                if hasattr(r, 'snowfall_custom_density'):
+                    r.snowfall_custom_density = self._snowfall_custom_density
+
+            # Try to stay on the same effect by name
+            if current_name in self._renderer_map:
+                self._active_idx = self._renderers.index(self._renderer_map[current_name])
+            else:
+                self._active_idx = 0
+
+        names = self.get_renderer_names()
+        logger.info("Hot-reloaded %d effects: %s", len(names), ", ".join(names))
+        return names
 
     def set_avatar(self, image_data: bytes) -> Path:
         """Set a custom avatar image for the Sprite Puppet effect.
@@ -296,6 +379,63 @@ class PartyEngine:
             value: Opacity 0.0 (invisible) to 1.0 (fully opaque).
         """
         self._puppet_opacity = max(0.0, min(1.0, float(value)))
+
+    @property
+    def snowfall_scale(self) -> float:
+        """Snowfall sprite size scale 0.3-3.0."""
+        return self._snowfall_scale
+
+    def set_snowfall_scale(self, value: float) -> None:
+        """Set the snowfall sprite size scale."""
+        self._snowfall_scale = max(0.3, min(3.0, float(value)))
+        for r in self._renderers:
+            if hasattr(r, 'snowfall_scale'):
+                r.snowfall_scale = self._snowfall_scale
+
+    @property
+    def snowfall_custom_scale(self) -> float:
+        """Snowfall Custom sprite size scale 0.3-3.0."""
+        return self._snowfall_custom_scale
+
+    def set_snowfall_custom_scale(self, value: float) -> None:
+        """Set the Snowfall Custom sprite size scale."""
+        self._snowfall_custom_scale = max(0.3, min(3.0, float(value)))
+        for r in self._renderers:
+            if hasattr(r, 'snowfall_custom_scale'):
+                r.snowfall_custom_scale = self._snowfall_custom_scale
+
+    @property
+    def snowfall_density(self) -> float:
+        """Snowfall sprite density 0.1-3.0."""
+        return self._snowfall_density
+
+    def set_snowfall_density(self, value: float) -> None:
+        """Set the Snowfall sprite density."""
+        self._snowfall_density = max(0.1, min(3.0, float(value)))
+        for r in self._renderers:
+            if hasattr(r, 'snowfall_density'):
+                r.snowfall_density = self._snowfall_density
+
+    @property
+    def snowfall_custom_density(self) -> float:
+        """Snowfall Custom sprite density 0.1-3.0."""
+        return self._snowfall_custom_density
+
+    def set_snowfall_custom_density(self, value: float) -> None:
+        """Set the Snowfall Custom sprite density."""
+        self._snowfall_custom_density = max(0.1, min(3.0, float(value)))
+        for r in self._renderers:
+            if hasattr(r, 'snowfall_custom_density'):
+                r.snowfall_custom_density = self._snowfall_custom_density
+
+    @property
+    def brightness(self) -> float:
+        """Global brightness multiplier 0.2-2.0."""
+        return self._brightness
+
+    def set_brightness(self, value: float) -> None:
+        """Set global brightness multiplier."""
+        self._brightness = max(0.2, min(2.0, float(value)))
 
     def trigger_photo(self, seconds: int | None = None) -> bool:
         """Start a photo countdown.
@@ -541,6 +681,11 @@ class PartyEngine:
         )
 
         output = renderer.render(ctx)
+
+        # Apply global brightness
+        if self._brightness != 1.0:
+            output = cv2.convertScaleAbs(output, alpha=self._brightness, beta=0)
+
         timestamp = ctx.timestamp
         if pose is not None:
             person_present = pose.num_people > 0
@@ -666,6 +811,11 @@ class PartyEngine:
             "countdown": capture.countdown_value,
             "person_present": capture.person_present,
             "puppet_opacity": self._puppet_opacity,
+            "snowfall_scale": self._snowfall_scale,
+            "snowfall_custom_scale": self._snowfall_custom_scale,
+            "snowfall_density": self._snowfall_density,
+            "snowfall_custom_density": self._snowfall_custom_density,
+            "brightness": self._brightness,
         }
 
     def close(self) -> Path | None:

@@ -32,6 +32,7 @@ KEY_BASS_METER = ord("b")
 KEY_SNAP = ord("s")
 KEY_RECORD = ord("r")
 KEY_AUTO_CAPTURE = ord("a")
+KEY_RELOAD = ord("l")
 COUNTDOWN_FONT_SCALE = 4.0
 COUNTDOWN_THICKNESS = 8
 STATUS_TEXT_COLOR = (255, 255, 255)
@@ -89,7 +90,7 @@ def main() -> None:
     show_bass_meter = False
 
     logger.info(
-        "Starting pipeline — 'n'/'p' cycle effects, 's' photo, 'r' record, 'a' auto, 'b' bass, 'q'/ESC quit"
+        "Starting pipeline — 'n'/'p' cycle effects, 's' photo, 'r' record, 'a' auto, 'b' bass, 'l' reload effects, 'q'/ESC quit"
     )
     logger.info("Available effects: %s", ", ".join(engine.get_renderer_names()))
 
@@ -275,6 +276,12 @@ def main() -> None:
                         logger.info("Recording started: %s", path)
             elif key == KEY_AUTO_CAPTURE:
                 engine.toggle_auto_capture()
+            elif key == KEY_RELOAD:
+                try:
+                    names = engine.reload_effects()
+                    logger.info("Effects reloaded: %s", ", ".join(names))
+                except Exception:
+                    logger.exception("Failed to reload effects")
             elif key == KEY_BASS_METER:
                 show_bass_meter = not show_bass_meter
                 logger.info("Bass meter: %s", "ON" if show_bass_meter else "OFF")

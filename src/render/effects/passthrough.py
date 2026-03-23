@@ -1,4 +1,4 @@
-"""Passthrough renderer — clean camera feed with optional vignette."""
+"""Passthrough renderer — brightened camera feed for dark room use."""
 
 import cv2
 import numpy as np
@@ -7,42 +7,35 @@ from src.render.base import BaseRenderer, RenderContext
 
 
 class PassthroughRenderer(BaseRenderer):
-    """Returns the original camera frame with a subtle bass-reactive vignette."""
+    """Returns the camera frame with brightness boost for dark rooms.
 
-    def __init__(self) -> None:
-        self._vignette_cache: dict[tuple[int, int], np.ndarray] = {}
-
-    def _get_vignette(self, h: int, w: int) -> np.ndarray:
-        """Get or create a normalized vignette gradient for the given size."""
-        key = (h, w)
-        if key not in self._vignette_cache:
-            y = np.linspace(-1, 1, h)
-            x = np.linspace(-1, 1, w)
-            xv, yv = np.meshgrid(x, y)
-            # Distance from center, normalized 0-1
-            dist = np.sqrt(xv ** 2 + yv ** 2)
-            dist = np.clip(dist / dist.max(), 0, 1)
-            self._vignette_cache[key] = dist.astype(np.float32)
-        return self._vignette_cache[key]
+    Applies a gentle brightness lift and optional bass-reactive
+    warm glow to help visibility in low-light party environments.
+    """
 
     def render(self, ctx: RenderContext) -> np.ndarray:
-        """Render passthrough with optional vignette.
-
-        Args:
-            ctx: Current frame data.
-
-        Returns:
-            Original frame, optionally with vignette darkening.
-        """
         output = ctx.frame.copy()
 
-        if ctx.bass_energy > 0.01:
-            h, w = output.shape[:2]
-            dist = self._get_vignette(h, w)
-            # Corner darkness scales with bass: 0.2 (quiet) to 0.35 (loud)
-            strength = 0.2 + ctx.bass_energy * 0.15
-            darkening = 1.0 - dist * strength
-            output = (output * darkening[:, :, np.newaxis]).astype(np.uint8)
+        # Brighten the frame for dark room visibility
+        # Lift shadows: add flat brightness + gentle gamma correction
+        bright_add = 10  # flat brightness boost
+        output = cv2.add(output, np.full_like(output, bright_add))
+
+        # Slight gamma lift to brighten midtones (gamma < 1 = brighter)
+        gamma = 0.93
+        lut = np.array([
+            np.clip(((i / 255.0) ** gamma) * 255, 0, 255)
+            for i in range(256)
+        ], dtype=np.uint8)
+        output = cv2.LUT(output, lut)
+
+        # Bass-reactive warm pulse (subtle)
+        if ctx.bass_energy > 0.1:
+            warmth = int(ctx.bass_energy * 20)
+            warm = output.copy()
+            warm[:, :, 2] = np.clip(warm[:, :, 2].astype(np.int16) + warmth, 0, 255).astype(np.uint8)
+            warm[:, :, 1] = np.clip(warm[:, :, 1].astype(np.int16) + warmth // 2, 0, 255).astype(np.uint8)
+            output = warm
 
         return output
 

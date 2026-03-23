@@ -61,6 +61,10 @@ body { display: flex; flex-direction: column; }
 .toggle input:checked + .slider { background: var(--accent); }
 .toggle input:checked + .slider::before { transform: translateX(20px); }
 
+/* Effect-specific sections */
+.effect-section { margin-top: var(--gap); }
+.effect-section.hidden { display: none; }
+
 /* ---- YouTube tab ---- */
 .search-row { display: flex; gap: 8px; margin-bottom: var(--gap); }
 .search-row input { flex: 1; padding: 12px; background: var(--surface); border: 1px solid #333; border-radius: var(--radius); color: var(--text); font-size: 16px; }
@@ -95,10 +99,15 @@ body { display: flex; flex-direction: column; }
 .lightbox-download { background: var(--accent); color: #000; }
 .lightbox-delete { background: var(--red); color: #fff; }
 
-/* ---- Avatar upload ---- */
+/* ---- Upload buttons ---- */
 .avatar-upload-btn { padding: 10px 16px; background: var(--surface2); color: var(--accent); border: 1px solid var(--accent); border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; text-align: center; }
 .avatar-clear-btn { padding: 10px 16px; background: var(--surface2); color: var(--red); border: 1px solid var(--red); border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
 .avatar-status { font-size: 13px; color: var(--green); display: flex; align-items: center; }
+
+/* Snowfall image chips */
+.snow-images { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.snow-chip { display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: var(--surface2); border-radius: 8px; font-size: 12px; color: var(--text2); }
+.snow-chip button { background: none; border: none; color: var(--red); font-size: 14px; cursor: pointer; padding: 0 2px; }
 </style>
 </head>
 <body>
@@ -126,6 +135,7 @@ body { display: flex; flex-direction: column; }
     <div class="action-row">
       <button class="snap-btn" id="snap-btn">SNAP</button>
       <button class="rec-btn" id="rec-btn">REC</button>
+      <button class="snap-btn" id="reload-btn" style="background:var(--surface2);color:var(--accent);font-size:12px;padding:8px 12px">Reload FX</button>
     </div>
 
     <div class="toggle-row">
@@ -136,17 +146,80 @@ body { display: flex; flex-direction: column; }
       </div>
     </div>
 
-    <div class="avatar-section" style="margin-top:var(--gap)">
+    <!-- Snowfall section (shown only when Snowfall is active) -->
+    <div class="effect-section hidden" id="snowfall-section">
       <div class="toggle-row" style="flex-wrap:wrap;gap:8px;margin-bottom:8px">
         <label style="width:100%;display:flex;justify-content:space-between;align-items:center">
-          Puppet Opacity
+          Snowfall Size
+          <span id="snow-val" style="font-size:12px;color:var(--text2)">100%</span>
+        </label>
+        <input type="range" id="snowfall-scale" min="30" max="300" value="100"
+          style="width:100%;accent-color:var(--accent)">
+      </div>
+      <div class="toggle-row" style="flex-wrap:wrap;gap:8px">
+        <label style="width:100%;display:flex;justify-content:space-between;align-items:center">
+          Snow Amount
+          <span id="snow-density-val" style="font-size:12px;color:var(--text2)">100%</span>
+        </label>
+        <input type="range" id="snowfall-density" min="10" max="300" value="100"
+          style="width:100%;accent-color:var(--accent)">
+      </div>
+    </div>
+
+    <!-- Snowfall Custom section (shown only when Snowfall Custom is active) -->
+    <div class="effect-section hidden" id="snowfall-custom-section">
+      <div class="toggle-row" style="flex-wrap:wrap;gap:8px;margin-bottom:8px">
+        <label style="width:100%;display:flex;justify-content:space-between;align-items:center">
+          Custom Size
+          <span id="snow-custom-val" style="font-size:12px;color:var(--text2)">100%</span>
+        </label>
+        <input type="range" id="snowfall-custom-scale" min="30" max="300" value="100"
+          style="width:100%;accent-color:var(--accent)">
+      </div>
+      <div class="toggle-row" style="flex-wrap:wrap;gap:8px;margin-bottom:8px">
+        <label style="width:100%;display:flex;justify-content:space-between;align-items:center">
+          Snow Amount
+          <span id="snow-custom-density-val" style="font-size:12px;color:var(--text2)">100%</span>
+        </label>
+        <input type="range" id="snowfall-custom-density" min="10" max="300" value="100"
+          style="width:100%;accent-color:var(--accent)">
+      </div>
+      <div class="toggle-row" style="flex-wrap:wrap;gap:8px;margin-bottom:8px">
+        <label style="width:100%">Image 1</label>
+        <div style="display:flex;gap:8px;width:100%;margin-top:4px;align-items:center">
+          <label class="avatar-upload-btn" id="snow-upload1-label">
+            Upload
+            <input type="file" id="snow-upload1-input" accept="image/*" style="display:none">
+          </label>
+          <span class="snow-chip hidden" id="snow-chip1"></span>
+          <span class="avatar-status" id="snow-upload1-status"></span>
+        </div>
+      </div>
+      <div class="toggle-row" style="flex-wrap:wrap;gap:8px">
+        <label style="width:100%">Image 2</label>
+        <div style="display:flex;gap:8px;width:100%;margin-top:4px;align-items:center">
+          <label class="avatar-upload-btn" id="snow-upload2-label">
+            Upload
+            <input type="file" id="snow-upload2-input" accept="image/*" style="display:none">
+          </label>
+          <span class="snow-chip hidden" id="snow-chip2"></span>
+          <span class="avatar-status" id="snow-upload2-status"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Custom Avatar section (shown only when Custom Avatar is active) -->
+    <div class="effect-section hidden" id="avatar-section">
+      <div class="toggle-row" style="flex-wrap:wrap;gap:8px;margin-bottom:8px">
+        <label style="width:100%;display:flex;justify-content:space-between;align-items:center">
+          Avatar Transparency
           <span id="opacity-val" style="font-size:12px;color:var(--text2)">70%</span>
         </label>
         <input type="range" id="puppet-opacity" min="0" max="100" value="70"
           style="width:100%;accent-color:var(--accent)">
       </div>
       <div class="toggle-row" style="flex-wrap:wrap;gap:8px">
-        <label>Custom Avatar (Sprite Puppet)</label>
+        <label>Custom Avatar</label>
         <div style="display:flex;gap:8px;width:100%;margin-top:4px">
           <label class="avatar-upload-btn" id="avatar-upload-label">
             Upload Face
@@ -156,6 +229,16 @@ body { display: flex; flex-direction: column; }
           <span class="avatar-status" id="avatar-status"></span>
         </div>
       </div>
+    </div>
+
+    <!-- Global brightness slider (always visible) -->
+    <div class="toggle-row" style="flex-wrap:wrap;gap:8px;margin-top:var(--gap)">
+      <label style="width:100%;display:flex;justify-content:space-between;align-items:center">
+        Brightness
+        <span id="brightness-val" style="font-size:12px;color:var(--text2)">100%</span>
+      </label>
+      <input type="range" id="brightness-slider" min="20" max="200" value="100"
+        style="width:100%;accent-color:var(--accent)">
     </div>
   </div>
 
@@ -260,6 +343,7 @@ body { display: flex; flex-direction: column; }
   const effectsGrid = $id('effects-grid');
   const snapBtn = $id('snap-btn');
   const recBtn = $id('rec-btn');
+  const reloadBtn = $id('reload-btn');
   const autoToggle = $id('auto-toggle');
   const previewBadge = $id('preview-badge');
   const galleryGrid = $id('gallery-grid');
@@ -269,6 +353,19 @@ body { display: flex; flex-direction: column; }
   const lbClose = $id('lb-close');
   const lbDownload = $id('lb-download');
   const lbDelete = $id('lb-delete');
+
+  // Effect-specific sections
+  const snowfallSection = $id('snowfall-section');
+  const snowfallCustomSection = $id('snowfall-custom-section');
+  const avatarSection = $id('avatar-section');
+
+  // ---- Effect-specific section visibility ----
+  function updateEffectSections() {
+    snowfallSection.classList.toggle('hidden', currentEffect !== 'Snowfall');
+    snowfallCustomSection.classList.toggle('hidden', currentEffect !== 'Snowfall Custom');
+    avatarSection.classList.toggle('hidden', currentEffect !== 'Custom Avatar');
+    if (currentEffect === 'Snowfall Custom') loadSnowfallImages();
+  }
 
   // ---- Tab switching ----
   document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -292,11 +389,16 @@ body { display: flex; flex-direction: column; }
       btn.addEventListener('click', () => setEffect(name));
       effectsGrid.appendChild(btn);
     });
+    updateEffectSections();
   }
 
   async function setEffect(name) {
     try {
-      await fetch('/api/effects/' + encodeURIComponent(name), { method: 'POST' });
+      await fetch('/api/effects/set', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name })
+      });
       currentEffect = name;
       renderEffects();
     } catch (e) { console.error('setEffect', e); }
@@ -318,13 +420,34 @@ body { display: flex; flex-direction: column; }
     } catch (e) { console.error('rec', e); }
   });
 
+  reloadBtn.addEventListener('click', async () => {
+    reloadBtn.textContent = 'Reloading...';
+    reloadBtn.disabled = true;
+    try {
+      const res = await fetch('/api/effects/reload', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        effects = data.effects;
+        renderEffects();
+        reloadBtn.textContent = 'Reloaded!';
+      } else {
+        reloadBtn.textContent = 'Error!';
+        console.error('reload', data.error);
+      }
+    } catch (e) {
+      reloadBtn.textContent = 'Error!';
+      console.error('reload', e);
+    }
+    setTimeout(() => { reloadBtn.textContent = 'Reload FX'; reloadBtn.disabled = false; }, 1500);
+  });
+
   autoToggle.addEventListener('change', async () => {
     if (updatingFromWS) return;
     try { await fetch('/api/auto-capture/toggle', { method: 'POST' }); }
     catch (e) { console.error('auto', e); }
   });
 
-  // ---- Puppet opacity slider ----
+  // ---- Avatar Transparency slider ----
   const opacitySlider = $id('puppet-opacity');
   const opacityVal = $id('opacity-val');
   let updatingOpacityFromWS = false;
@@ -342,6 +465,161 @@ body { display: flex; flex-direction: column; }
       });
     } catch (e) { console.error('opacity', e); }
   });
+
+  // ---- Snowfall size slider ----
+  const snowSlider = $id('snowfall-scale');
+  const snowVal = $id('snow-val');
+  let updatingSnowFromWS = false;
+
+  snowSlider.addEventListener('input', () => {
+    snowVal.textContent = snowSlider.value + '%';
+  });
+  snowSlider.addEventListener('change', async () => {
+    if (updatingSnowFromWS) return;
+    try {
+      await fetch('/api/snowfall-scale', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: snowSlider.value / 100 })
+      });
+    } catch (e) { console.error('snow-scale', e); }
+  });
+
+  // ---- Snowfall Custom size slider ----
+  const snowCustomSlider = $id('snowfall-custom-scale');
+  const snowCustomVal = $id('snow-custom-val');
+  let updatingSnowCustomFromWS = false;
+
+  snowCustomSlider.addEventListener('input', () => {
+    snowCustomVal.textContent = snowCustomSlider.value + '%';
+  });
+  snowCustomSlider.addEventListener('change', async () => {
+    if (updatingSnowCustomFromWS) return;
+    try {
+      await fetch('/api/snowfall-custom-scale', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: snowCustomSlider.value / 100 })
+      });
+    } catch (e) { console.error('snow-custom-scale', e); }
+  });
+
+  // ---- Snowfall density slider ----
+  const snowDensitySlider = $id('snowfall-density');
+  const snowDensityVal = $id('snow-density-val');
+  let updatingSnowDensityFromWS = false;
+
+  snowDensitySlider.addEventListener('input', () => {
+    snowDensityVal.textContent = snowDensitySlider.value + '%';
+  });
+  snowDensitySlider.addEventListener('change', async () => {
+    if (updatingSnowDensityFromWS) return;
+    try {
+      await fetch('/api/snowfall-density', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: snowDensitySlider.value / 100 })
+      });
+    } catch (e) { console.error('snow-density', e); }
+  });
+
+  // ---- Snowfall Custom density slider ----
+  const snowCustomDensitySlider = $id('snowfall-custom-density');
+  const snowCustomDensityVal = $id('snow-custom-density-val');
+  let updatingSnowCustomDensityFromWS = false;
+
+  snowCustomDensitySlider.addEventListener('input', () => {
+    snowCustomDensityVal.textContent = snowCustomDensitySlider.value + '%';
+  });
+  snowCustomDensitySlider.addEventListener('change', async () => {
+    if (updatingSnowCustomDensityFromWS) return;
+    try {
+      await fetch('/api/snowfall-custom-density', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: snowCustomDensitySlider.value / 100 })
+      });
+    } catch (e) { console.error('snow-custom-density', e); }
+  });
+
+  // ---- Global brightness slider ----
+  const brightnessSlider = $id('brightness-slider');
+  const brightnessVal = $id('brightness-val');
+  let updatingBrightnessFromWS = false;
+
+  brightnessSlider.addEventListener('input', () => {
+    brightnessVal.textContent = brightnessSlider.value + '%';
+  });
+  brightnessSlider.addEventListener('change', async () => {
+    if (updatingBrightnessFromWS) return;
+    try {
+      await fetch('/api/brightness', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: brightnessSlider.value / 100 })
+      });
+    } catch (e) { console.error('brightness', e); }
+  });
+
+  // ---- Snowfall Custom 2-slot image upload ----
+  async function loadSnowfallImages() {
+    try {
+      const res = await fetch('/api/snowfall/images');
+      const data = await res.json();
+      const images = data.images || [];
+      for (let i = 0; i < 2; i++) {
+        const chip = $id('snow-chip' + (i + 1));
+        const status = $id('snow-upload' + (i + 1) + '-status');
+        if (images[i]) {
+          chip.textContent = images[i].name;
+          chip.classList.remove('hidden');
+          chip.innerHTML = images[i].name + ' ';
+          const del = document.createElement('button');
+          del.textContent = 'X';
+          del.addEventListener('click', async () => {
+            try {
+              await fetch('/api/snowfall/images/' + encodeURIComponent(images[i].name), { method: 'DELETE' });
+              loadSnowfallImages();
+            } catch (e) { console.error('delSnowImg', e); }
+          });
+          chip.appendChild(del);
+          status.textContent = '';
+        } else {
+          chip.innerHTML = '';
+          chip.classList.add('hidden');
+        }
+      }
+    } catch (e) { console.error('loadSnowImages', e); }
+  }
+
+  function setupSnowUpload(slot) {
+    const input = $id('snow-upload' + slot + '-input');
+    const status = $id('snow-upload' + slot + '-status');
+    input.addEventListener('change', async () => {
+      const file = input.files[0];
+      if (!file) return;
+      const form = new FormData();
+      form.append('file', file);
+      status.textContent = 'Uploading...';
+      try {
+        const res = await fetch('/api/snowfall/upload', { method: 'POST', body: form });
+        const data = await res.json();
+        if (res.ok) {
+          status.textContent = 'Done!';
+          loadSnowfallImages();
+        } else {
+          status.textContent = data.error || 'Failed';
+        }
+      } catch (e) {
+        status.textContent = 'Failed';
+        console.error('snowUpload', e);
+      }
+      input.value = '';
+      setTimeout(() => { status.textContent = ''; }, 3000);
+    });
+  }
+  setupSnowUpload(1);
+  setupSnowUpload(2);
 
   // ---- Avatar upload ----
   const avatarInput = $id('avatar-input');
@@ -530,6 +808,46 @@ body { display: flex; flex-direction: column; }
           updatingOpacityFromWS = false;
         }
 
+        if (state.snowfall_scale !== undefined && !snowSlider.matches(':active')) {
+          updatingSnowFromWS = true;
+          const spct = Math.round(state.snowfall_scale * 100);
+          snowSlider.value = spct;
+          snowVal.textContent = spct + '%';
+          updatingSnowFromWS = false;
+        }
+
+        if (state.snowfall_custom_scale !== undefined && !snowCustomSlider.matches(':active')) {
+          updatingSnowCustomFromWS = true;
+          const scpct = Math.round(state.snowfall_custom_scale * 100);
+          snowCustomSlider.value = scpct;
+          snowCustomVal.textContent = scpct + '%';
+          updatingSnowCustomFromWS = false;
+        }
+
+        if (state.snowfall_density !== undefined && !snowDensitySlider.matches(':active')) {
+          updatingSnowDensityFromWS = true;
+          const sdpct = Math.round(state.snowfall_density * 100);
+          snowDensitySlider.value = sdpct;
+          snowDensityVal.textContent = sdpct + '%';
+          updatingSnowDensityFromWS = false;
+        }
+
+        if (state.snowfall_custom_density !== undefined && !snowCustomDensitySlider.matches(':active')) {
+          updatingSnowCustomDensityFromWS = true;
+          const scdpct = Math.round(state.snowfall_custom_density * 100);
+          snowCustomDensitySlider.value = scdpct;
+          snowCustomDensityVal.textContent = scdpct + '%';
+          updatingSnowCustomDensityFromWS = false;
+        }
+
+        if (state.brightness !== undefined && !brightnessSlider.matches(':active')) {
+          updatingBrightnessFromWS = true;
+          const bpct = Math.round(state.brightness * 100);
+          brightnessSlider.value = bpct;
+          brightnessVal.textContent = bpct + '%';
+          updatingBrightnessFromWS = false;
+        }
+
         // Countdown badge
         if (state.countdown) {
           previewBadge.textContent = state.countdown;
@@ -552,7 +870,7 @@ body { display: flex; flex-direction: column; }
   // ---- Init ----
   connectWS();
 
-  // Load effects list on startup (in case WS is slow)
+  // Load effects list on startup
   fetch('/api/effects').then(r => r.json()).then(data => {
     if (data.effects && effects.length === 0) {
       effects = data.effects;
@@ -566,6 +884,9 @@ body { display: flex; flex-direction: column; }
       renderEffects();
     }
   }).catch(() => {});
+
+  // Load snowfall images on startup
+  loadSnowfallImages();
 
 })();
 </script>

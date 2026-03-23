@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(/Users/alex/Documents/projects/posefx-studio/.venv/bin/python -c \":*)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''src/web/server.py''\\).read\\(\\)\\); print\\(''server.py OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''src/engine.py''\\).read\\(\\)\\); print\\(''engine.py OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''src/render/effects/passthrough.py''\\).read\\(\\)\\); print\\(''passthrough.py OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''src/render/effects/digital_rain.py''\\).read\\(\\)\\); print\\(''digital_rain.py OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''src/render/effects/snowfall_custom.py''\\).read\\(\\)\\); print\\(''snowfall_custom.py OK''\\)\")"
     ]
   }
 }

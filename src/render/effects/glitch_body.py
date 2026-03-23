@@ -6,32 +6,24 @@ import cv2
 import numpy as np
 
 from src.render.base import BaseRenderer, RenderContext
-from src.render.utils import composite_head, get_head_mask
+from src.render.utils import get_head_mask
 
 
 class GlitchBodyRenderer(BaseRenderer):
     """Body region sliced into horizontal bands with glitch distortion.
 
     Each strip is randomly offset horizontally with RGB channel
-    separation. Some strips show noise or scanlines. Face stays clean.
+    separation. Entire body including face is glitched, but the face
+    area is blended at higher transparency so you can still see it.
     Bass energy intensifies the glitch.
     """
 
     _STRIP_HEIGHT = 16
-    _INVERT_FRAMES = 0  # countdown for bass-triggered inversion
 
     def __init__(self) -> None:
         self._invert_countdown = 0
 
     def render(self, ctx: RenderContext) -> np.ndarray:
-        """Render glitch body effect.
-
-        Args:
-            ctx: Current frame data with mask and pose.
-
-        Returns:
-            Frame with glitched body region and clean face.
-        """
         h, w = ctx.frame.shape[:2]
         original = ctx.frame.copy()
         output = ctx.frame.copy()
@@ -42,17 +34,16 @@ class GlitchBodyRenderer(BaseRenderer):
         bass = ctx.bass_energy
         combined = ctx.mask.combined_mask
 
-        # Get head mask to exclude from glitch
-        head = get_head_mask(ctx.pose, ctx.frame.shape) if ctx.pose else np.zeros((h, w), dtype=np.uint8)
-        body_only = combined.copy()
-        body_only[head > 0] = 0
-
-        if not np.any(body_only):
+        # Use full body mask (including face)
+        if not np.any(combined):
             return output
 
-        # Find body bounding box for efficiency
-        rows = np.any(body_only, axis=1)
-        cols = np.any(body_only, axis=0)
+        # Get head mask for transparency blending later
+        head = get_head_mask(ctx.pose, ctx.frame.shape) if ctx.pose else np.zeros((h, w), dtype=np.uint8)
+
+        # Find body bounding box
+        rows = np.any(combined, axis=1)
+        cols = np.any(combined, axis=0)
         y_min, y_max = np.where(rows)[0][[0, -1]]
         x_min, x_max = np.where(cols)[0][[0, -1]]
 
@@ -67,29 +58,27 @@ class GlitchBodyRenderer(BaseRenderer):
         if self._invert_countdown > 0:
             self._invert_countdown -= 1
 
-        # Process body in horizontal strips
+        # Build glitched version of entire body
+        glitched = output.copy()
+
         for y in range(y_min, y_max + 1, self._STRIP_HEIGHT):
             y_end = min(y + self._STRIP_HEIGHT, y_max + 1)
-            strip_mask = body_only[y:y_end, x_min:x_max + 1]
+            strip_mask = combined[y:y_end, x_min:x_max + 1]
 
             if not np.any(strip_mask):
                 continue
 
-            # Random horizontal offset
             offset = random.randint(-max_offset, max_offset)
             strip = original[y:y_end, x_min:x_max + 1].copy()
 
             # RGB channel separation
             if channel_shift > 0:
                 shifted = np.zeros_like(strip)
-                # Red channel shifts right
                 if offset + channel_shift < strip.shape[1]:
                     shifted[:, channel_shift:, 2] = strip[:, :strip.shape[1] - channel_shift, 2]
                 else:
                     shifted[:, :, 2] = strip[:, :, 2]
-                # Green stays centered
                 shifted[:, :, 1] = strip[:, :, 1]
-                # Blue channel shifts left
                 if channel_shift < strip.shape[1]:
                     shifted[:, :strip.shape[1] - channel_shift, 0] = strip[:, channel_shift:, 0]
                 else:
@@ -99,7 +88,6 @@ class GlitchBodyRenderer(BaseRenderer):
             # Noise replacement for some strips
             if random.random() < noise_chance:
                 noise = np.random.randint(0, 80, strip.shape, dtype=np.uint8)
-                # Tint the noise cyan/magenta
                 if random.random() > 0.5:
                     noise[:, :, 2] = np.clip(noise[:, :, 2] + 60, 0, 255)
                 else:
@@ -122,20 +110,28 @@ class GlitchBodyRenderer(BaseRenderer):
             if self._invert_countdown > 0:
                 strip = 255 - strip
 
-            # Apply strip only where body mask is active
+            # Apply strip where body mask is active
             mask_3ch = strip_mask[:, :, np.newaxis] > 0
-            region = output[y:y_end, x_min:x_max + 1]
-            output[y:y_end, x_min:x_max + 1] = np.where(mask_3ch, strip, region)
+            region = glitched[y:y_end, x_min:x_max + 1]
+            glitched[y:y_end, x_min:x_max + 1] = np.where(mask_3ch, strip, region)
 
         # Scanline overlay on body (every 3rd row dimmed)
         scanline_mask = np.zeros(h, dtype=bool)
         scanline_mask[::3] = True
-        scan_rows = scanline_mask & (np.any(body_only, axis=1))
+        scan_rows = scanline_mask & (np.any(combined, axis=1))
         for y_idx in np.where(scan_rows)[0]:
-            row_mask = body_only[y_idx] > 0
-            output[y_idx, row_mask] = (output[y_idx, row_mask].astype(np.int16) * 7 // 10).astype(np.uint8)
+            row_mask = combined[y_idx] > 0
+            glitched[y_idx, row_mask] = (glitched[y_idx, row_mask].astype(np.int16) * 7 // 10).astype(np.uint8)
 
-        return composite_head(output, original, ctx.pose, ctx.frame.shape)
+        # For the face region: blend glitch at ~40% so face is still visible
+        if np.any(head):
+            head_bool = head > 0
+            face_blend = cv2.addWeighted(
+                glitched, 0.4, original, 0.6, 0
+            )
+            glitched[head_bool] = face_blend[head_bool]
+
+        return glitched
 
     @property
     def name(self) -> str:
