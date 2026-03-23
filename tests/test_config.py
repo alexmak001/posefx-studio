@@ -72,6 +72,7 @@ def test_load_config_defaults():
     assert config.inference.device == "mps"
     assert config.debug.show_fps is True
     assert config.capture == CaptureConfig()
+    assert config.web.qr_visible_on_startup is True
 
 
 def test_load_config_file_not_found():
@@ -96,3 +97,21 @@ def test_load_config_invalid_capture_mode():
         load_config(tmp_path)
 
     Path(tmp_path).unlink()
+
+
+def test_load_config_custom_web_qr_visibility():
+    """Custom QR visibility config should load correctly."""
+    config_data = {
+        "web": {
+            "qr_visible_on_startup": False,
+        },
+    }
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        yaml.dump(config_data, f)
+        tmp_path = f.name
+
+    config = load_config(tmp_path)
+    Path(tmp_path).unlink()
+
+    assert config.web.qr_visible_on_startup is False

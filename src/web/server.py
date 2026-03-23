@@ -5,15 +5,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
-import time
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import uvicorn
 from fastapi import FastAPI, Request, UploadFile, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
+
+from src.utils.network import detect_local_ip
 
 if TYPE_CHECKING:
     from src.engine import PartyEngine
@@ -154,6 +154,37 @@ async def toggle_auto_capture() -> JSONResponse:
     """Toggle auto-capture mode."""
     enabled = _get_engine().toggle_auto_capture()
     return JSONResponse({"auto_capture": enabled})
+
+
+@app.get("/api/qr")
+async def get_qr_image() -> Response:
+    """Return the current QR code image for phone access."""
+    qr_png = _get_engine().get_qr_png()
+    if qr_png is None:
+        return JSONResponse({"error": "QR not available"}, status_code=503)
+    return Response(content=qr_png, media_type="image/png")
+
+
+@app.post("/api/qr/toggle")
+async def toggle_qr() -> JSONResponse:
+    """Toggle the preview QR overlay."""
+    engine = _get_engine()
+    visible = engine.toggle_qr_visibility()
+    return JSONResponse({"qr_visible": visible, "hub_url": engine.hub_url})
+
+
+@app.post("/api/qr/refresh")
+async def refresh_qr() -> JSONResponse:
+    """Regenerate the QR using the current detected LAN IP."""
+    engine = _get_engine()
+    config = _get_config()
+    hub_url = f"http://{detect_local_ip()}:{config.web.port}"
+    try:
+        engine.set_hub_url(hub_url)
+    except RuntimeError as exc:
+        logger.exception("Failed to refresh QR")
+        return JSONResponse({"error": str(exc)}, status_code=503)
+    return JSONResponse({"qr_visible": engine.qr_visible, "hub_url": engine.hub_url})
 
 
 # ---------------------------------------------------------------------------

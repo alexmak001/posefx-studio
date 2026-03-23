@@ -96,6 +96,7 @@ class WebConfig:
     port: int = 8000
     stream_quality: int = 60
     stream_max_fps: int = 15
+    qr_visible_on_startup: bool = True
 
 
 @dataclass

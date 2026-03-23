@@ -7,7 +7,6 @@ Usage:
 
 import argparse
 import logging
-import socket
 
 import cv2
 
@@ -17,6 +16,7 @@ from src.io.preview import PreviewWindow
 from src.io.video_input import VideoFileInput
 from src.io.webcam import WebcamCapture
 from src.utils.config import load_config
+from src.utils.network import detect_local_ip
 from src.utils.platform import detect_platform
 from src.utils.timing import FPSCounter
 
@@ -76,15 +76,16 @@ def main() -> None:
 
     # Start web server if enabled
     if config.web.enabled:
+        local_ip = detect_local_ip()
+        hub_url = f"http://{local_ip}:{config.web.port}"
+        try:
+            engine.set_hub_url(hub_url)
+        except RuntimeError:
+            logger.exception("QR setup failed; run 'uv sync' to install QR dependencies")
+
         from src.web.server import start_server
         start_server(engine, config)
-        try:
-            local_ip = socket.gethostbyname(socket.gethostname())
-        except Exception:
-            local_ip = "localhost"
-        logger.info(
-            "Party hub ready at http://%s:%d", local_ip, config.web.port
-        )
+        logger.info("Party hub ready at %s", hub_url)
 
     show_bass_meter = False
 
@@ -241,6 +242,8 @@ def main() -> None:
                     AUTO_COLOR,
                     2,
                 )
+
+            engine.overlay_qr(preview_frame)
 
             # Feed latest frame to web MJPEG stream
             engine.set_latest_frame(preview_frame, fps_counter.fps)

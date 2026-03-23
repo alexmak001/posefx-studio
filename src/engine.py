@@ -32,6 +32,7 @@ from src.render.effects.passthrough import PassthroughRenderer
 from src.render.effects.shadow_clones import ShadowClonesRenderer
 from src.render.effects.sprite_puppet import SpritePuppetRenderer
 from src.utils.config import AppConfig
+from src.utils.qr import build_qr_png
 
 if TYPE_CHECKING:
     from src.audio.capture import AudioCapture
@@ -39,6 +40,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 FLASH_DURATION_SECONDS = 0.2
 _HAS_FFMPEG = shutil.which("ffmpeg") is not None
+QR_LABEL_TEXT = "SCAN TO OPEN"
+QR_MARGIN = 16
+QR_PADDING = 12
+QR_LABEL_HEIGHT = 22
+QR_MIN_SIZE = 104
+QR_MAX_SIZE = 180
+QR_PANEL_COLOR = (8, 8, 8)
+QR_PANEL_ALPHA = 0.82
+QR_LABEL_COLOR = (220, 220, 220)
 
 
 @dataclass(frozen=True)
@@ -99,6 +109,10 @@ class PartyEngine:
         self._avatar_image: np.ndarray | None = None
         self._avatar_dir = Path("data/avatars")
         self._puppet_opacity = 0.7
+        self._hub_url: str | None = None
+        self._qr_visible = config.web.qr_visible_on_startup
+        self._qr_png_bytes: bytes | None = None
+        self._qr_image: np.ndarray | None = None
 
         # Load inference models
         self._pose_estimator = YOLOPoseEstimator(config.inference)
@@ -296,6 +310,106 @@ class PartyEngine:
             value: Opacity 0.0 (invisible) to 1.0 (fully opaque).
         """
         self._puppet_opacity = max(0.0, min(1.0, float(value)))
+
+    @property
+    def hub_url(self) -> str | None:
+        """Current phone-access URL for the local web app."""
+        return self._hub_url
+
+    @property
+    def qr_visible(self) -> bool:
+        """Whether the QR overlay should be shown on the preview output."""
+        return self._qr_visible
+
+    def set_hub_url(self, url: str) -> None:
+        """Set the local hub URL and regenerate the cached QR image.
+
+        Args:
+            url: Local network URL guests should scan.
+
+        Raises:
+            RuntimeError: If QR generation dependencies are unavailable.
+        """
+        qr_png = build_qr_png(url)
+        decoded = cv2.imdecode(
+            np.frombuffer(qr_png, dtype=np.uint8),
+            cv2.IMREAD_COLOR,
+        )
+        if decoded is None:
+            raise RuntimeError("Failed to decode generated QR PNG")
+
+        with self._lock:
+            self._hub_url = url
+            self._qr_png_bytes = qr_png
+            self._qr_image = decoded
+
+    def toggle_qr_visibility(self) -> bool:
+        """Toggle the preview QR overlay and return the new state."""
+        with self._lock:
+            self._qr_visible = not self._qr_visible
+            return self._qr_visible
+
+    def get_qr_png(self) -> bytes | None:
+        """Return the cached QR image bytes for the phone UI."""
+        with self._lock:
+            return self._qr_png_bytes
+
+    def overlay_qr(self, frame: np.ndarray) -> np.ndarray:
+        """Overlay the cached QR code in the lower-right corner.
+
+        Args:
+            frame: Preview frame that will be shown and streamed.
+
+        Returns:
+            The same frame with the QR panel applied when enabled.
+        """
+        with self._lock:
+            if not self._qr_visible or self._qr_image is None:
+                return frame
+            qr_image = self._qr_image.copy()
+
+        frame_h, frame_w = frame.shape[:2]
+        side = int(min(QR_MAX_SIZE, max(QR_MIN_SIZE, min(frame_h, frame_w) * 0.24)))
+        qr_resized = cv2.resize(
+            qr_image,
+            (side, side),
+            interpolation=cv2.INTER_NEAREST,
+        )
+
+        panel_w = side + (QR_PADDING * 2)
+        panel_h = side + QR_LABEL_HEIGHT + (QR_PADDING * 2)
+        panel_x = max(QR_MARGIN, frame_w - panel_w - QR_MARGIN)
+        panel_y = max(QR_MARGIN, frame_h - panel_h - QR_MARGIN)
+        panel_x2 = min(frame_w, panel_x + panel_w)
+        panel_y2 = min(frame_h, panel_y + panel_h)
+
+        overlay = frame.copy()
+        cv2.rectangle(
+            overlay,
+            (panel_x, panel_y),
+            (panel_x2, panel_y2),
+            QR_PANEL_COLOR,
+            thickness=-1,
+        )
+        frame[:] = cv2.addWeighted(overlay, QR_PANEL_ALPHA, frame, 1.0 - QR_PANEL_ALPHA, 0.0)
+
+        label_x = panel_x + QR_PADDING
+        label_y = panel_y + 15
+        cv2.putText(
+            frame,
+            QR_LABEL_TEXT,
+            (label_x, label_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            QR_LABEL_COLOR,
+            1,
+            cv2.LINE_AA,
+        )
+
+        qr_x = panel_x + QR_PADDING
+        qr_y = panel_y + QR_LABEL_HEIGHT + QR_PADDING
+        frame[qr_y:qr_y + side, qr_x:qr_x + side] = qr_resized
+        return frame
 
     def trigger_photo(self, seconds: int | None = None) -> bool:
         """Start a photo countdown.
@@ -666,6 +780,8 @@ class PartyEngine:
             "countdown": capture.countdown_value,
             "person_present": capture.person_present,
             "puppet_opacity": self._puppet_opacity,
+            "qr_visible": self._qr_visible,
+            "hub_url": self._hub_url,
         }
 
     def close(self) -> Path | None:

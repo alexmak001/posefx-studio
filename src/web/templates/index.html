@@ -24,6 +24,9 @@ body { display: flex; flex-direction: column; }
 .status-bar .dot.connected { background: var(--green); }
 .bass-bar { width: 60px; height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
 .bass-bar-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.15s; }
+.status-btn { margin-left: auto; padding: 6px 10px; border: 1px solid #2d2d2d; border-radius: 999px; background: var(--surface); color: var(--text); font-size: 11px; font-weight: 700; cursor: pointer; }
+.status-btn.active { border-color: var(--accent); color: var(--accent); }
+.status-effect { min-width: 0; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---- Content area ---- */
 .content { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: var(--gap); padding-bottom: calc(64px + var(--safe-bottom) + var(--gap)); }
@@ -95,6 +98,21 @@ body { display: flex; flex-direction: column; }
 .lightbox-download { background: var(--accent); color: #000; }
 .lightbox-delete { background: var(--red); color: #fff; }
 
+/* ---- QR modal ---- */
+.qr-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 220; align-items: center; justify-content: center; padding: 20px; }
+.qr-modal.open { display: flex; }
+.qr-card { width: min(92vw, 360px); background: #0e0e0e; border: 1px solid #222; border-radius: 18px; padding: 18px; }
+.qr-card h3 { font-size: 18px; margin-bottom: 6px; }
+.qr-card p { font-size: 13px; color: var(--text2); margin-bottom: 14px; }
+.qr-image-wrap { background: #fff; border-radius: 14px; padding: 12px; margin-bottom: 12px; display: flex; align-items: center; justify-content: center; min-height: 220px; }
+.qr-image-wrap img { width: min(100%, 240px); height: auto; display: block; }
+.qr-url { background: var(--surface); border-radius: 12px; padding: 10px 12px; font-size: 13px; color: var(--text); word-break: break-all; margin-bottom: 12px; }
+.qr-actions-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.qr-actions-row button { flex: 1; padding: 12px; border: none; border-radius: 12px; font-size: 13px; font-weight: 700; cursor: pointer; }
+.qr-toggle-btn { background: var(--accent); color: #000; }
+.qr-refresh-btn { background: var(--surface2); color: var(--text); }
+.qr-close-btn { width: 100%; padding: 12px; border: none; border-radius: 12px; background: transparent; color: var(--text2); cursor: pointer; }
+
 /* ---- Avatar upload ---- */
 .avatar-upload-btn { padding: 10px 16px; background: var(--surface2); color: var(--accent); border: 1px solid var(--accent); border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; text-align: center; }
 .avatar-clear-btn { padding: 10px 16px; background: var(--surface2); color: var(--red); border: 1px solid var(--red); border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
@@ -108,7 +126,8 @@ body { display: flex; flex-direction: column; }
   <div class="dot" id="ws-dot"></div>
   <span id="status-fps">-- FPS</span>
   <div class="bass-bar"><div class="bass-bar-fill" id="bass-fill"></div></div>
-  <span style="margin-left:auto" id="status-effect">--</span>
+  <button class="status-btn" id="qr-open">QR</button>
+  <span class="status-effect" id="status-effect">--</span>
 </div>
 
 <!-- Content area -->
@@ -237,6 +256,22 @@ body { display: flex; flex-direction: column; }
   </div>
 </div>
 
+<div class="qr-modal" id="qr-modal">
+  <div class="qr-card">
+    <h3>Open On Your Phone</h3>
+    <p>Scan this while your phone is on the same Wi-Fi.</p>
+    <div class="qr-image-wrap">
+      <img id="qr-image" alt="Phone access QR code">
+    </div>
+    <div class="qr-url" id="qr-url">Waiting for local URL...</div>
+    <div class="qr-actions-row">
+      <button class="qr-toggle-btn" id="qr-toggle">Hide On Screen</button>
+      <button class="qr-refresh-btn" id="qr-refresh">Refresh URL</button>
+    </div>
+    <button class="qr-close-btn" id="qr-close">Close</button>
+  </div>
+</div>
+
 <script>
 (function() {
   'use strict';
@@ -246,6 +281,9 @@ body { display: flex; flex-direction: column; }
   let effects = [];
   let isRecording = false;
   let autoCapture = false;
+  let qrVisible = false;
+  let hubUrl = '';
+  let qrVersion = 0;
   let galleryItems = [];
   let galleryFilter = 'all';
   let lightboxFile = null;
@@ -257,6 +295,13 @@ body { display: flex; flex-direction: column; }
   const statusFps = $id('status-fps');
   const bassFill = $id('bass-fill');
   const statusEffect = $id('status-effect');
+  const qrOpen = $id('qr-open');
+  const qrModal = $id('qr-modal');
+  const qrImage = $id('qr-image');
+  const qrUrl = $id('qr-url');
+  const qrToggle = $id('qr-toggle');
+  const qrRefresh = $id('qr-refresh');
+  const qrClose = $id('qr-close');
   const effectsGrid = $id('effects-grid');
   const snapBtn = $id('snap-btn');
   const recBtn = $id('rec-btn');
@@ -269,6 +314,17 @@ body { display: flex; flex-direction: column; }
   const lbClose = $id('lb-close');
   const lbDownload = $id('lb-download');
   const lbDelete = $id('lb-delete');
+
+  function refreshQrImage() {
+    qrImage.src = '/api/qr?v=' + qrVersion;
+  }
+
+  function renderQrState() {
+    qrOpen.classList.toggle('active', qrVisible);
+    qrToggle.textContent = qrVisible ? 'Hide On Screen' : 'Show On Screen';
+    qrUrl.textContent = hubUrl || 'Waiting for local URL...';
+    qrRefresh.disabled = !hubUrl;
+  }
 
   // ---- Tab switching ----
   document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -483,6 +539,47 @@ body { display: flex; flex-direction: column; }
     } catch (e) { console.error('delete', e); }
   });
 
+  // ---- QR controls ----
+  qrOpen.addEventListener('click', () => {
+    qrModal.classList.add('open');
+    if (hubUrl) refreshQrImage();
+    renderQrState();
+  });
+
+  qrClose.addEventListener('click', () => {
+    qrModal.classList.remove('open');
+  });
+
+  qrModal.addEventListener('click', evt => {
+    if (evt.target === qrModal) {
+      qrModal.classList.remove('open');
+    }
+  });
+
+  qrToggle.addEventListener('click', async () => {
+    try {
+      const res = await fetch('/api/qr/toggle', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'QR toggle failed');
+      qrVisible = !!data.qr_visible;
+      hubUrl = data.hub_url || hubUrl;
+      renderQrState();
+    } catch (e) { console.error('qr toggle', e); }
+  });
+
+  qrRefresh.addEventListener('click', async () => {
+    try {
+      const res = await fetch('/api/qr/refresh', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'QR refresh failed');
+      qrVisible = !!data.qr_visible;
+      hubUrl = data.hub_url || '';
+      qrVersion += 1;
+      refreshQrImage();
+      renderQrState();
+    } catch (e) { console.error('qr refresh', e); }
+  });
+
   // ---- WebSocket ----
   let ws = null;
   let wsRetryDelay = 1000;
@@ -521,6 +618,10 @@ body { display: flex; flex-direction: column; }
         updatingFromWS = true;
         autoToggle.checked = autoCapture;
         updatingFromWS = false;
+
+        qrVisible = !!state.qr_visible;
+        hubUrl = state.hub_url || '';
+        renderQrState();
 
         if (state.puppet_opacity !== undefined && !opacitySlider.matches(':active')) {
           updatingOpacityFromWS = true;
@@ -566,6 +667,8 @@ body { display: flex; flex-direction: column; }
       renderEffects();
     }
   }).catch(() => {});
+
+  renderQrState();
 
 })();
 </script>

@@ -43,6 +43,7 @@ web:
   port: 8000
   stream_quality: 60         # JPEG quality for MJPEG stream (lower = less bandwidth)
   stream_max_fps: 15         # cap stream FPS to save bandwidth
+  qr_visible_on_startup: true
 
 debug:
   show_skeleton: true
