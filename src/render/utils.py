@@ -6,7 +6,7 @@ import cv2
 from src.inference.base import PoseResult
 
 
-def get_head_mask(pose: PoseResult, frame_shape: tuple, scale: float = 1.8) -> np.ndarray:
+def get_head_mask(pose: PoseResult, frame_shape: tuple, scale: float = 1.4) -> np.ndarray:
     """Create a circular mask around the head region using pose keypoints.
 
     Uses nose (0), left_eye (1), right_eye (2), left_ear (3), right_ear (4)
@@ -33,7 +33,6 @@ def get_head_mask(pose: PoseResult, frame_shape: tuple, scale: float = 1.8) -> n
         kpts = pose.keypoints[person_idx]
         confs = pose.confidences[person_idx]
 
-        # Collect visible head keypoints
         visible = []
         for idx in head_indices:
             if confs[idx] > 0.3:
@@ -46,10 +45,9 @@ def get_head_mask(pose: PoseResult, frame_shape: tuple, scale: float = 1.8) -> n
         center_x = float(np.mean(points[:, 0]))
         center_y = float(np.mean(points[:, 1]))
 
-        # Radius from spread of head keypoints
         dists = np.sqrt((points[:, 0] - center_x) ** 2 + (points[:, 1] - center_y) ** 2)
         radius = float(np.max(dists)) * scale
-        radius = max(radius, 30.0)  # minimum size
+        radius = max(radius, 30.0)
 
         cv2.circle(mask, (int(center_x), int(center_y)), int(radius), 1, -1)
 
@@ -58,8 +56,8 @@ def get_head_mask(pose: PoseResult, frame_shape: tuple, scale: float = 1.8) -> n
 
 def composite_head(output: np.ndarray, original: np.ndarray,
                    pose: PoseResult | None, frame_shape: tuple,
-                   head_scale: float = 1.8) -> np.ndarray:
-    """Blend the original face back into an effect frame.
+                   head_scale: float = 1.4) -> np.ndarray:
+    """Blend the original face back into an effect frame with soft feathered edges.
 
     Args:
         output: The effect-rendered frame.
@@ -69,7 +67,7 @@ def composite_head(output: np.ndarray, original: np.ndarray,
         head_scale: Scale factor for head mask.
 
     Returns:
-        Frame with real face composited back in.
+        Frame with real face composited back in with smooth blending.
     """
     if pose is None or pose.num_people == 0:
         return output
@@ -78,5 +76,14 @@ def composite_head(output: np.ndarray, original: np.ndarray,
     if not np.any(head):
         return output
 
-    head_3ch = head[:, :, np.newaxis]
-    return np.where(head_3ch, original, output).astype(np.uint8)
+    # Feather the mask edges with Gaussian blur for smooth blending
+    head_255 = (head * 255).astype(np.uint8)
+    feather_size = 31
+    soft_mask = cv2.GaussianBlur(head_255, (feather_size, feather_size), 0)
+    alpha = soft_mask.astype(np.float32) / 255.0
+    alpha_3ch = alpha[:, :, np.newaxis]
+
+    # Smooth blend: face at full opacity in center, fades into effect at edges
+    result = (original.astype(np.float32) * alpha_3ch +
+              output.astype(np.float32) * (1.0 - alpha_3ch))
+    return result.astype(np.uint8)

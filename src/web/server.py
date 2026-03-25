@@ -9,6 +9,8 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import cv2
+import numpy as np
 import uvicorn
 from fastapi import FastAPI, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
@@ -97,11 +99,34 @@ async def get_effects() -> JSONResponse:
     return JSONResponse({"effects": _get_engine().get_renderer_names()})
 
 
-@app.post("/api/effects/{name}")
-async def set_effect(name: str) -> JSONResponse:
-    """Switch the active effect."""
+@app.post("/api/effects/set")
+async def set_effect_body(request: Request) -> JSONResponse:
+    """Switch the active effect (body-based, handles special chars)."""
+    body = await request.json()
+    name = body.get("name", "")
     engine = _get_engine()
-    if name not in {r for r in engine.get_renderer_names()}:
+    if name not in engine.get_renderer_names():
+        return JSONResponse({"error": f"Unknown effect: {name}"}, status_code=404)
+    engine.set_renderer(name)
+    return JSONResponse({"effect": name})
+
+
+@app.post("/api/effects/reload")
+async def reload_effects() -> JSONResponse:
+    """Hot-reload all effect renderer modules from disk."""
+    try:
+        names = _get_engine().reload_effects()
+        return JSONResponse({"effects": names, "reloaded": True})
+    except Exception as exc:
+        logger.exception("Failed to reload effects")
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@app.post("/api/effects/{name:path}")
+async def set_effect(name: str) -> JSONResponse:
+    """Switch the active effect (path-based, legacy)."""
+    engine = _get_engine()
+    if name not in engine.get_renderer_names():
         return JSONResponse({"error": f"Unknown effect: {name}"}, status_code=404)
     engine.set_renderer(name)
     return JSONResponse({"effect": name})
@@ -212,9 +237,84 @@ async def clear_avatar() -> JSONResponse:
     return JSONResponse({"avatar": None})
 
 
+@app.post("/api/snowfall-scale")
+async def set_snowfall_scale(request: Request) -> JSONResponse:
+    """Set the snowfall sprite size scale."""
+    body = await request.json()
+    value = body.get("value")
+    if value is None:
+        return JSONResponse({"error": "Missing 'value'"}, status_code=400)
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "Invalid value"}, status_code=400)
+    _get_engine().set_snowfall_scale(value)
+    return JSONResponse({"snowfall_scale": _get_engine().snowfall_scale})
+
+
+@app.post("/api/snowfall-density")
+async def set_snowfall_density(request: Request) -> JSONResponse:
+    """Set the snowfall sprite density."""
+    body = await request.json()
+    value = body.get("value")
+    if value is None:
+        return JSONResponse({"error": "Missing 'value'"}, status_code=400)
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "Invalid value"}, status_code=400)
+    _get_engine().set_snowfall_density(value)
+    return JSONResponse({"snowfall_density": _get_engine().snowfall_density})
+
+
+@app.post("/api/snowfall-custom-scale")
+async def set_snowfall_custom_scale(request: Request) -> JSONResponse:
+    """Set the Snowfall Custom sprite size scale."""
+    body = await request.json()
+    value = body.get("value")
+    if value is None:
+        return JSONResponse({"error": "Missing 'value'"}, status_code=400)
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "Invalid value"}, status_code=400)
+    _get_engine().set_snowfall_custom_scale(value)
+    return JSONResponse({"snowfall_custom_scale": _get_engine().snowfall_custom_scale})
+
+
+@app.post("/api/snowfall-custom-density")
+async def set_snowfall_custom_density(request: Request) -> JSONResponse:
+    """Set the Snowfall Custom sprite density."""
+    body = await request.json()
+    value = body.get("value")
+    if value is None:
+        return JSONResponse({"error": "Missing 'value'"}, status_code=400)
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "Invalid value"}, status_code=400)
+    _get_engine().set_snowfall_custom_density(value)
+    return JSONResponse({"snowfall_custom_density": _get_engine().snowfall_custom_density})
+
+
+@app.post("/api/brightness")
+async def set_brightness(request: Request) -> JSONResponse:
+    """Set the global brightness multiplier."""
+    body = await request.json()
+    value = body.get("value")
+    if value is None:
+        return JSONResponse({"error": "Missing 'value'"}, status_code=400)
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "Invalid value"}, status_code=400)
+    _get_engine().set_brightness(value)
+    return JSONResponse({"brightness": _get_engine().brightness})
+
+
 @app.post("/api/puppet-opacity")
 async def set_puppet_opacity(request: Request) -> JSONResponse:
-    """Set the Sprite Puppet skeleton opacity."""
+    """Set the Custom Avatar opacity."""
     body = await request.json()
     value = body.get("value")
     if value is None:
@@ -232,6 +332,120 @@ async def get_avatar_status() -> JSONResponse:
     """Check if a custom avatar is set."""
     has_avatar = _get_engine().avatar_image is not None
     return JSONResponse({"has_avatar": has_avatar})
+
+
+# ---------------------------------------------------------------------------
+# Snowfall custom image endpoints
+# ---------------------------------------------------------------------------
+
+_SNOWFALL_DIR = Path("data/snowfall")
+
+
+def _remove_background(img: np.ndarray) -> np.ndarray:
+    """Remove background from an image using saturation-based approach.
+
+    Works well for images with white/light backgrounds.
+    Returns BGRA image with transparent background.
+    """
+    if img.ndim == 2:
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    if img.shape[2] == 4:
+        alpha = img[:, :, 3]
+        if np.mean(alpha < 250) > 0.2:
+            return img
+        bgr = img[:, :, :3]
+    else:
+        bgr = img
+
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    sat = hsv[:, :, 1].astype(np.float32)
+    val = hsv[:, :, 2].astype(np.float32)
+
+    # High saturation = foreground, low saturation + high value = white bg
+    white_diff = np.clip((val - 200) * 2.0, 0, 255)
+    alpha = np.clip(sat * 2.5 + white_diff * 0.5, 0, 255)
+
+    # Also consider dark areas as foreground
+    dark_mask = val < 80
+    alpha[dark_mask] = np.clip(alpha[dark_mask] + (80 - val[dark_mask]) * 3, 0, 255)
+
+    # Slight blur to smooth edges
+    alpha = cv2.GaussianBlur(alpha, (5, 5), 0)
+    alpha = np.clip(alpha, 0, 255).astype(np.uint8)
+
+    return np.dstack([bgr, alpha])
+
+
+@app.get("/api/snowfall/images")
+async def get_snowfall_images() -> JSONResponse:
+    """List current custom snowfall images."""
+    images = []
+    if _SNOWFALL_DIR.exists():
+        for p in sorted(_SNOWFALL_DIR.iterdir()):
+            if p.suffix.lower() == ".png" and not p.name.startswith("."):
+                images.append({"name": p.name, "path": str(p)})
+    return JSONResponse({"images": images, "max": 2})
+
+
+@app.post("/api/snowfall/upload")
+async def upload_snowfall_image(file: UploadFile) -> JSONResponse:
+    """Upload a custom snowfall sprite image (max 2)."""
+    _SNOWFALL_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Check count
+    existing = [
+        p for p in _SNOWFALL_DIR.iterdir()
+        if p.suffix.lower() == ".png" and not p.name.startswith(".")
+    ]
+    if len(existing) >= 2:
+        return JSONResponse(
+            {"error": "Maximum 2 custom images. Delete one first."},
+            status_code=409,
+        )
+
+    data = await file.read()
+    if len(data) > 10 * 1024 * 1024:
+        return JSONResponse({"error": "File too large (max 10MB)"}, status_code=413)
+
+    arr = np.frombuffer(data, dtype=np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_UNCHANGED)
+    if img is None:
+        return JSONResponse({"error": "Could not decode image"}, status_code=400)
+
+    # Remove background and save as RGBA PNG
+    processed = _remove_background(img)
+
+    # Generate filename
+    import time as _time
+    stem = f"sprite_{int(_time.time())}"
+    path = _SNOWFALL_DIR / f"{stem}.png"
+    cv2.imwrite(str(path), processed)
+
+    # Trigger renderer reload
+    engine = _get_engine()
+    for r in engine._renderers:
+        if hasattr(r, 'reload_custom_images'):
+            r.reload_custom_images()
+
+    logger.info("Snowfall image uploaded: %s (%dx%d)", path, processed.shape[1], processed.shape[0])
+    return JSONResponse({"name": path.name, "path": str(path)})
+
+
+@app.delete("/api/snowfall/images/{name}")
+async def delete_snowfall_image(name: str) -> JSONResponse:
+    """Delete a custom snowfall image."""
+    path = _SNOWFALL_DIR / name
+    if not path.exists() or not str(path.resolve()).startswith(str(_SNOWFALL_DIR.resolve())):
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    path.unlink()
+
+    engine = _get_engine()
+    for r in engine._renderers:
+        if hasattr(r, 'reload_custom_images'):
+            r.reload_custom_images()
+
+    logger.info("Snowfall image deleted: %s", name)
+    return JSONResponse({"deleted": name})
 
 
 # ---------------------------------------------------------------------------
