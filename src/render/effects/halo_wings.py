@@ -296,7 +296,7 @@ class HaloWingsRenderer(BaseRenderer):
         hx = int(kpts[hand_idx, 0])
         hy = int(kpts[hand_idx, 1])
         _, _, head_radius = head_info
-        fork_h = int(head_radius * 3.5 * (1.0 + bass * 0.1))
+        fork_h = int(head_radius * 1.8 * (1.0 + bass * 0.1))
         fork_w = int(fork_h * self._pitchfork_img.shape[1] / self._pitchfork_img.shape[0])
         _paste_rgba(frame, self._pitchfork_img, hx, hy, fork_w, fork_h)
 

@@ -8,7 +8,8 @@
       "Bash(python -c \"import ast; ast.parse\\(open\\(''src/engine.py''\\).read\\(\\)\\); print\\(''engine.py OK''\\)\")",
       "Bash(python -c \"import ast; ast.parse\\(open\\(''src/render/effects/passthrough.py''\\).read\\(\\)\\); print\\(''passthrough.py OK''\\)\")",
       "Bash(python -c \"import ast; ast.parse\\(open\\(''src/render/effects/digital_rain.py''\\).read\\(\\)\\); print\\(''digital_rain.py OK''\\)\")",
-      "Bash(python -c \"import ast; ast.parse\\(open\\(''src/render/effects/snowfall_custom.py''\\).read\\(\\)\\); print\\(''snowfall_custom.py OK''\\)\")"
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''src/render/effects/snowfall_custom.py''\\).read\\(\\)\\); print\\(''snowfall_custom.py OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''src/render/effects/halo_wings.py''\\).read\\(\\)\\); print\\(''OK''\\)\")"
     ]
   }
 }
