@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import threading
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -567,6 +568,50 @@ async def get_tv_source() -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# Video upload & playback
+# ---------------------------------------------------------------------------
+
+_MEDIA_DIR = Path("data/media")
+_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+_ALLOWED_VIDEO_EXT = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
+
+
+@app.post("/api/media/upload")
+async def media_upload(file: UploadFile) -> JSONResponse:
+    """Upload a video and immediately play it on the TV."""
+    if not file.filename:
+        return JSONResponse({"error": "No file"}, status_code=400)
+    ext = Path(file.filename).suffix.lower()
+    if ext not in _ALLOWED_VIDEO_EXT:
+        return JSONResponse({"error": f"Unsupported format: {ext}"}, status_code=400)
+
+    # Save file
+    dest = _MEDIA_DIR / f"upload_{int(time.time())}{ext}"
+    data = await file.read()
+    dest.write_bytes(data)
+
+    # Switch to media mode and play
+    engine = _get_engine()
+    engine.set_tv_source("media")
+    if _tv_player:
+        ok = _tv_player.play(str(dest), title=file.filename)
+        if not ok:
+            engine.set_tv_source("camera")
+            return JSONResponse({"error": "Playback failed (mpv not installed?)"}, status_code=503)
+    return JSONResponse({"status": "playing", "title": file.filename})
+
+
+@app.post("/api/media/stop")
+async def media_stop() -> JSONResponse:
+    """Stop video playback and return to camera."""
+    if _tv_player:
+        _tv_player.stop()
+    engine = _get_engine()
+    engine.set_tv_source("camera")
+    return JSONResponse({"status": "idle"})
+
+
+# ---------------------------------------------------------------------------
 # YouTube DJ (Step 6)
 # ---------------------------------------------------------------------------
 
@@ -699,14 +744,20 @@ def start_server(engine: PartyEngine, config: AppConfig) -> threading.Thread:
     _engine = engine
     _config = config
 
+    from src.services.tv_player import TVPlayer
+
+    def _on_playback_end():
+        if _engine:
+            _engine.set_tv_source("camera")
+
+    _tv_player = TVPlayer(on_end=_on_playback_end)
+
     if config.youtube.enabled:
         from src.services.youtube import YouTubeService
-        from src.services.tv_player import TVPlayer
         _youtube_service = YouTubeService(
             max_results=config.youtube.max_search_results,
             max_duration=config.youtube.max_duration_seconds,
         )
-        _tv_player = TVPlayer()
 
     def _run() -> None:
         uvicorn.run(

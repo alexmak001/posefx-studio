@@ -15,11 +15,12 @@ _HAS_MPV = shutil.which("mpv") is not None
 class TVPlayer:
     """Plays video on the TV output using mpv."""
 
-    def __init__(self) -> None:
+    def __init__(self, on_end: callable | None = None) -> None:
         self._lock = threading.Lock()
         self._process: subprocess.Popen | None = None
         self._status = "idle"
         self._current_title = ""
+        self._on_end = on_end
 
         if _HAS_MPV:
             logger.info("TVPlayer: mpv found")
@@ -69,12 +70,19 @@ class TVPlayer:
     def _monitor(self, proc: subprocess.Popen) -> None:
         """Wait for mpv to exit and reset status."""
         proc.wait()
+        fire_callback = False
         with self._lock:
             if self._process is proc:
                 self._process = None
                 self._status = "idle"
                 self._current_title = ""
+                fire_callback = True
                 logger.info("TVPlayer: playback ended")
+        if fire_callback and self._on_end:
+            try:
+                self._on_end()
+            except Exception:
+                logger.exception("TVPlayer: on_end callback failed")
 
     def stop(self) -> None:
         """Stop any active playback."""
