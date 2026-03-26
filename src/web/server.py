@@ -540,6 +540,33 @@ async def delete_gallery_file(path: str) -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# TV Source switcher
+# ---------------------------------------------------------------------------
+
+@app.post("/api/tv-source")
+async def set_tv_source(request: Request) -> JSONResponse:
+    """Switch what the TV displays: camera, youtube, or media."""
+    body = await request.json()
+    source = body.get("source", "")
+    if source not in ("camera", "youtube", "media"):
+        return JSONResponse({"error": "Invalid source"}, status_code=400)
+    engine = _get_engine()
+    old_source = engine.tv_source
+    engine.set_tv_source(source)
+    # When leaving youtube mode, stop mpv playback
+    if old_source == "youtube" and source != "youtube" and _tv_player:
+        _tv_player.stop()
+    return JSONResponse({"tv_source": source})
+
+
+@app.get("/api/tv-source")
+async def get_tv_source() -> JSONResponse:
+    """Get current TV source."""
+    engine = _get_engine()
+    return JSONResponse({"tv_source": engine.tv_source})
+
+
+# ---------------------------------------------------------------------------
 # YouTube DJ (Step 6)
 # ---------------------------------------------------------------------------
 

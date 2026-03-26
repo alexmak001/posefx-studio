@@ -120,6 +120,7 @@ class PartyEngine:
         self._snowfall_density = 1.0
         self._snowfall_custom_density = 1.0
         self._brightness = 1.0
+        self._tv_source = "camera"  # "camera" | "youtube" | "media"
 
         # Load inference models
         self._pose_estimator = YOLOPoseEstimator(config.inference)
@@ -450,6 +451,17 @@ class PartyEngine:
     def set_brightness(self, value: float) -> None:
         """Set global brightness multiplier."""
         self._brightness = max(0.2, min(2.0, float(value)))
+
+    @property
+    def tv_source(self) -> str:
+        """Current TV source: 'camera', 'youtube', or 'media'."""
+        return self._tv_source
+
+    def set_tv_source(self, source: str) -> None:
+        """Switch TV source."""
+        if source in ("camera", "youtube", "media"):
+            self._tv_source = source
+            logger.info("TV source switched to: %s", source)
 
     @property
     def hub_url(self) -> str | None:
@@ -932,6 +944,7 @@ class PartyEngine:
             "snowfall_density": self._snowfall_density,
             "snowfall_custom_density": self._snowfall_custom_density,
             "brightness": self._brightness,
+            "tv_source": self._tv_source,
         }
 
     def close(self) -> Path | None:

@@ -28,6 +28,11 @@ body { display: flex; flex-direction: column; }
 .status-btn.active { border-color: var(--accent); color: var(--accent); }
 .status-effect { min-width: 0; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* ---- TV Source bar ---- */
+.tv-source-bar { display: flex; gap: 6px; padding: 6px 12px; background: #0e0e0e; border-bottom: 1px solid #222; flex-shrink: 0; }
+.tv-src-btn { flex: 1; padding: 8px; border: 1px solid #333; border-radius: 8px; background: var(--surface); color: var(--text2); font-size: 12px; font-weight: 600; cursor: pointer; text-align: center; transition: all 0.15s; }
+.tv-src-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+
 /* ---- Content area ---- */
 .content { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: var(--gap); padding-bottom: calc(64px + var(--safe-bottom) + var(--gap)); }
 .tab-content { display: none; }
@@ -153,6 +158,12 @@ body { display: flex; flex-direction: column; }
   <div class="bass-bar"><div class="bass-bar-fill" id="bass-fill"></div></div>
   <button class="status-btn" id="qr-open">QR</button>
   <span class="status-effect" id="status-effect">--</span>
+</div>
+
+<!-- TV Source switcher -->
+<div class="tv-source-bar">
+  <button class="tv-src-btn active" data-source="camera" id="tv-src-camera">Camera FX</button>
+  <button class="tv-src-btn" data-source="youtube" id="tv-src-youtube">YouTube</button>
 </div>
 
 <!-- Content area -->
@@ -396,6 +407,7 @@ body { display: flex; flex-direction: column; }
   let galleryFilter = 'all';
   let lightboxFile = null;
   let updatingFromWS = false;
+  let tvSource = 'camera';
 
   // ---- DOM refs ----
   const $id = id => document.getElementById(id);
@@ -977,6 +989,12 @@ body { display: flex; flex-direction: column; }
         // YouTube status
         if (state.youtube) updateYoutubeStatus(state.youtube);
 
+        // TV source sync
+        if (state.tv_source && state.tv_source !== tvSource) {
+          tvSource = state.tv_source;
+          renderTvSource();
+        }
+
         // Countdown badge
         if (state.countdown) {
           previewBadge.textContent = state.countdown;
@@ -1099,6 +1117,31 @@ body { display: flex; flex-direction: column; }
   function updateYoutubeStatus(yt) {
     // no-op: playback is now in-browser via iframe
   }
+
+  // ---- TV Source switcher ----
+  const tvSrcBtns = document.querySelectorAll('.tv-src-btn');
+
+  function renderTvSource() {
+    tvSrcBtns.forEach(b => b.classList.toggle('active', b.dataset.source === tvSource));
+  }
+
+  tvSrcBtns.forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const src = btn.dataset.source;
+      if (src === tvSource) return;
+      try {
+        const res = await fetch('/api/tv-source', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source: src })
+        });
+        if (res.ok) {
+          tvSource = src;
+          renderTvSource();
+        }
+      } catch (e) { console.error('tv-source', e); }
+    });
+  });
 
   // ---- Init ----
   connectWS();
