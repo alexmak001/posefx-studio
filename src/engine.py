@@ -121,6 +121,7 @@ class PartyEngine:
         self._snowfall_custom_density = 1.0
         self._brightness = 1.0
         self._tv_source = "camera"  # "camera" | "youtube" | "media"
+        self._show_hud = True
 
         # Load inference models
         self._pose_estimator = YOLOPoseEstimator(config.inference)
@@ -462,6 +463,14 @@ class PartyEngine:
         if source in ("camera", "youtube", "media"):
             self._tv_source = source
             logger.info("TV source switched to: %s", source)
+
+    @property
+    def show_hud(self) -> bool:
+        return self._show_hud
+
+    def toggle_hud(self) -> bool:
+        self._show_hud = not self._show_hud
+        return self._show_hud
 
     @property
     def hub_url(self) -> str | None:
@@ -947,6 +956,7 @@ class PartyEngine:
             "snowfall_custom_density": self._snowfall_custom_density,
             "brightness": self._brightness,
             "tv_source": self._tv_source,
+            "show_hud": self._show_hud,
         }
 
     def close(self) -> Path | None:

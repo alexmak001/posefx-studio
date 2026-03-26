@@ -113,33 +113,33 @@ def main() -> None:
             capture_state = engine.get_capture_state()
             preview_frame = output.copy()
 
-            # HUD overlays
-            if config.debug.show_fps:
+            # HUD overlays (togglable from phone)
+            if engine.show_hud:
+                if config.debug.show_fps:
+                    cv2.putText(
+                        preview_frame,
+                        f"FPS: {fps_counter.fps:.1f}",
+                        (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1.0,
+                        (0, 255, 0),
+                        2,
+                    )
+
+                effect_name = engine.active_renderer.name
+                text_size = cv2.getTextSize(
+                    effect_name, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2
+                )[0]
+                text_x = preview_frame.shape[1] - text_size[0] - 10
                 cv2.putText(
                     preview_frame,
-                    f"FPS: {fps_counter.fps:.1f}",
-                    (10, 30),
+                    effect_name,
+                    (text_x, 30),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    1.0,
-                    (0, 255, 0),
+                    0.8,
+                    (255, 255, 255),
                     2,
                 )
-
-            # Show current effect name (top-right)
-            effect_name = engine.active_renderer.name
-            text_size = cv2.getTextSize(
-                effect_name, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2
-            )[0]
-            text_x = preview_frame.shape[1] - text_size[0] - 10
-            cv2.putText(
-                preview_frame,
-                effect_name,
-                (text_x, 30),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.8,
-                (255, 255, 255),
-                2,
-            )
 
             # Bass meter overlay (bottom-left bar + numeric value)
             if show_bass_meter and audio is not None:
@@ -250,6 +250,7 @@ def main() -> None:
             engine.set_latest_frame(preview_frame, fps_counter.fps)
 
             preview.show(preview_frame)
+
 
             # Handle keyboard input
             key = preview.last_key

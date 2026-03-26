@@ -180,14 +180,9 @@ body { display: flex; flex-direction: column; }
   <div class="dot" id="ws-dot"></div>
   <span id="status-fps">-- FPS</span>
   <div class="bass-bar"><div class="bass-bar-fill" id="bass-fill"></div></div>
+  <button class="status-btn active" id="hud-toggle">HUD</button>
   <button class="status-btn" id="qr-open">QR</button>
   <span class="status-effect" id="status-effect">--</span>
-</div>
-
-<!-- TV Source switcher -->
-<div class="tv-source-bar">
-  <button class="tv-src-btn active" data-source="camera" id="tv-src-camera">Camera FX</button>
-  <button class="tv-src-btn" data-source="youtube" id="tv-src-youtube">YouTube</button>
 </div>
 
 <!-- Content area -->
@@ -1036,6 +1031,16 @@ body { display: flex; flex-direction: column; }
     } catch (e) { console.error('delete', e); }
   });
 
+  // ---- HUD toggle ----
+  const hudBtn = $id('hud-toggle');
+  hudBtn.addEventListener('click', async () => {
+    try {
+      const res = await fetch('/api/hud/toggle', { method: 'POST' });
+      const data = await res.json();
+      hudBtn.classList.toggle('active', data.show_hud);
+    } catch (e) { console.error('hud', e); }
+  });
+
   // ---- QR controls ----
   qrOpen.addEventListener('click', () => {
     qrModal.classList.add('open');
@@ -1178,6 +1183,11 @@ body { display: flex; flex-direction: column; }
           if (tvSource === 'camera') {
             videoPlayingBar.style.display = 'none';
           }
+        }
+
+        // HUD sync
+        if (state.show_hud !== undefined) {
+          hudBtn.classList.toggle('active', state.show_hud);
         }
 
         // Countdown badge

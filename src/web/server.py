@@ -795,6 +795,14 @@ async def get_tv_source() -> JSONResponse:
     return JSONResponse({"tv_source": engine.tv_source})
 
 
+@app.post("/api/hud/toggle")
+async def toggle_hud() -> JSONResponse:
+    """Toggle FPS and effect name overlay on the TV."""
+    engine = _get_engine()
+    visible = engine.toggle_hud()
+    return JSONResponse({"show_hud": visible})
+
+
 # ---------------------------------------------------------------------------
 # Video upload & playback
 # ---------------------------------------------------------------------------
