@@ -45,6 +45,11 @@ web:
   stream_max_fps: 15         # cap stream FPS to save bandwidth
   qr_visible_on_startup: true
 
+youtube:
+  enabled: true
+  max_search_results: 10
+  max_duration_seconds: 0
+
 debug:
   show_skeleton: true
   show_mask: true

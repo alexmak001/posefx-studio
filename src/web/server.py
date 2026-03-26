@@ -37,6 +37,10 @@ _engine: PartyEngine | None = None
 _config: AppConfig | None = None
 _ws_clients: set[WebSocket] = set()
 
+# YouTube services (set in start_server when youtube is enabled)
+_youtube_service = None  # YouTubeService | None
+_tv_player = None  # TVPlayer | None
+
 
 def _get_engine() -> PartyEngine:
     assert _engine is not None, "Engine not initialized"
@@ -536,31 +540,57 @@ async def delete_gallery_file(path: str) -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
-# YouTube stubs (Step 6)
+# YouTube DJ (Step 6)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/youtube/search")
 async def youtube_search(q: str = "") -> JSONResponse:
-    """Search YouTube (stub)."""
-    return JSONResponse({"results": [], "message": "YouTube search not yet implemented"})
+    """Search YouTube for videos."""
+    if not _youtube_service:
+        return JSONResponse({"results": [], "error": "YouTube not enabled"})
+    if not q.strip():
+        return JSONResponse({"results": []})
+    try:
+        results = await asyncio.to_thread(_youtube_service.search, q.strip())
+        return JSONResponse({"results": results})
+    except Exception as exc:
+        logger.exception("YouTube search failed")
+        return JSONResponse({"results": [], "error": str(exc)}, status_code=500)
 
 
 @app.post("/api/youtube/play")
-async def youtube_play() -> JSONResponse:
-    """Play a YouTube video (stub)."""
-    return JSONResponse({"error": "Not implemented"}, status_code=501)
+async def youtube_play(request: Request) -> JSONResponse:
+    """Play a YouTube video on the TV."""
+    if not _youtube_service or not _tv_player:
+        return JSONResponse({"error": "YouTube not enabled"}, status_code=501)
+    body = await request.json()
+    url = body.get("url", "")
+    title = body.get("title", "")
+    if not url:
+        return JSONResponse({"error": "Missing 'url'"}, status_code=400)
+    stream_url = await asyncio.to_thread(_youtube_service.get_stream_url, url)
+    if not stream_url:
+        return JSONResponse({"error": "Could not extract stream URL"}, status_code=502)
+    ok = _tv_player.play(stream_url, title=title)
+    if not ok:
+        return JSONResponse({"error": "Playback failed (mpv not installed?)"}, status_code=503)
+    return JSONResponse({"status": "playing", "title": title})
 
 
 @app.post("/api/youtube/stop")
 async def youtube_stop() -> JSONResponse:
-    """Stop YouTube playback (stub)."""
-    return JSONResponse({"error": "Not implemented"}, status_code=501)
+    """Stop YouTube playback."""
+    if _tv_player:
+        _tv_player.stop()
+    return JSONResponse({"status": "idle"})
 
 
 @app.get("/api/youtube/status")
 async def youtube_status() -> JSONResponse:
-    """YouTube playback status (stub)."""
-    return JSONResponse({"status": "idle"})
+    """YouTube playback status."""
+    if _tv_player:
+        return JSONResponse(_tv_player.get_status())
+    return JSONResponse({"status": "idle", "title": ""})
 
 
 # ---------------------------------------------------------------------------
@@ -611,6 +641,10 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         while True:
             engine = _get_engine()
             state = engine.get_state()
+            if _tv_player:
+                state["youtube"] = _tv_player.get_status()
+            else:
+                state["youtube"] = {"status": "idle", "title": ""}
             await ws.send_text(json.dumps(state))
             await asyncio.sleep(WS_BROADCAST_INTERVAL)
     except (WebSocketDisconnect, Exception):
@@ -634,9 +668,18 @@ def start_server(engine: PartyEngine, config: AppConfig) -> threading.Thread:
     Returns:
         The background thread running uvicorn.
     """
-    global _engine, _config
+    global _engine, _config, _youtube_service, _tv_player
     _engine = engine
     _config = config
+
+    if config.youtube.enabled:
+        from src.services.youtube import YouTubeService
+        from src.services.tv_player import TVPlayer
+        _youtube_service = YouTubeService(
+            max_results=config.youtube.max_search_results,
+            max_duration=config.youtube.max_duration_seconds,
+        )
+        _tv_player = TVPlayer()
 
     def _run() -> None:
         uvicorn.run(

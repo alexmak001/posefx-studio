@@ -100,6 +100,14 @@ class WebConfig:
 
 
 @dataclass
+class YouTubeConfig:
+    """YouTube DJ settings."""
+    enabled: bool = True
+    max_search_results: int = 10
+    max_duration_seconds: int = 600
+
+
+@dataclass
 class AppConfig:
     """Top-level application config."""
     camera: CameraConfig = field(default_factory=CameraConfig)
@@ -109,6 +117,7 @@ class AppConfig:
     audio: AudioConfig = field(default_factory=AudioConfig)
     capture: CaptureConfig = field(default_factory=CaptureConfig)
     web: WebConfig = field(default_factory=WebConfig)
+    youtube: YouTubeConfig = field(default_factory=YouTubeConfig)
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -140,4 +149,5 @@ def load_config(path: str | Path) -> AppConfig:
         audio=AudioConfig(**raw.get("audio", {})),
         capture=CaptureConfig(**raw.get("capture", {})),
         web=WebConfig(**raw.get("web", {})),
+        youtube=YouTubeConfig(**raw.get("youtube", {})),
     )
