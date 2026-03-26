@@ -9,3 +9,6 @@ Read `BUILDPLAN.md` for the step-by-step build plan when asked to execute steps.
 - Run checkpoints after each build step to verify before continuing
 - If a step fails, fix it before moving to the next step
 - Prefer modifying existing files over creating parallel implementations
+- Steps 1-4 are already done. Current work starts at Step 5.
+- The web app (Step 5) must be built before YouTube (Step 6) and AI Lab (Step 7)
+- All API keys come from environment variables, never hardcoded

@@ -9,7 +9,15 @@
       "Bash(python -c \"import ast; ast.parse\\(open\\(''src/render/effects/passthrough.py''\\).read\\(\\)\\); print\\(''passthrough.py OK''\\)\")",
       "Bash(python -c \"import ast; ast.parse\\(open\\(''src/render/effects/digital_rain.py''\\).read\\(\\)\\); print\\(''digital_rain.py OK''\\)\")",
       "Bash(python -c \"import ast; ast.parse\\(open\\(''src/render/effects/snowfall_custom.py''\\).read\\(\\)\\); print\\(''snowfall_custom.py OK''\\)\")",
-      "Bash(python -c \"import ast; ast.parse\\(open\\(''src/render/effects/halo_wings.py''\\).read\\(\\)\\); print\\(''OK''\\)\")"
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''src/render/effects/halo_wings.py''\\).read\\(\\)\\); print\\(''OK''\\)\")",
+      "Bash(mpv --version)",
+      "Bash(git checkout:*)",
+      "Bash(.venv/bin/python -c \"from src.engine import PartyEngine; print\\(''engine OK''\\)\")",
+      "Bash(.venv/bin/python -c \"from src.web.server import app; print\\(''server OK''\\)\")",
+      "Bash(git merge:*)",
+      "Bash(.venv/bin/python -c \"from src.web.server import app; print\\(''OK''\\)\")",
+      "Bash(.venv/bin/python -c \"from src.web.server import app; from src.engine import PartyEngine; print\\(''OK''\\)\")",
+      "Bash(git push:*)"
     ]
   }
 }
