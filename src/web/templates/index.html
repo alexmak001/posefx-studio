@@ -106,17 +106,41 @@ body { display: flex; flex-direction: column; }
 .gallery-filters { display: flex; gap: 8px; margin-bottom: var(--gap); overflow-x: auto; flex-wrap: nowrap; }
 .filter-btn { padding: 8px 16px; background: var(--surface); border: none; border-radius: 20px; color: var(--text2); font-size: 13px; cursor: pointer; white-space: nowrap; }
 .filter-btn.active { background: var(--accent); color: #000; }
+.gallery-filter-row { margin-bottom: 8px; }
+.gallery-filter-label { font-size: 12px; color: var(--text2); margin-bottom: 6px; }
 .gallery-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
 .gallery-item { aspect-ratio: 1; border-radius: 8px; overflow: hidden; background: var(--surface); position: relative; cursor: pointer; }
-.gallery-item img { width: 100%; height: 100%; object-fit: cover; }
-.gallery-item video { width: 100%; height: 100%; object-fit: cover; }
-.gallery-item .badge { position: absolute; bottom: 4px; right: 4px; background: rgba(0,0,0,0.7); color: #fff; font-size: 10px; padding: 2px 6px; border-radius: 4px; }
+.gallery-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gallery-item video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gallery-item .play-icon {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 54px;
+  height: 54px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: rgba(0,0,0,0.62);
+  border: 2px solid rgba(255,255,255,0.2);
+  pointer-events: none;
+}
+.gallery-item .play-icon::before {
+  content: '';
+  position: absolute;
+  left: 21px;
+  top: 15px;
+  border-left: 15px solid #fff;
+  border-top: 10px solid transparent;
+  border-bottom: 10px solid transparent;
+}
+.gallery-item .badge { position: absolute; background: rgba(0,0,0,0.7); color: #fff; font-size: 10px; padding: 2px 6px; border-radius: 4px; }
+.gallery-item .badge.kind { bottom: 4px; right: 4px; }
+.gallery-item .badge.variant { top: 4px; left: 4px; }
 .gallery-empty { text-align: center; color: var(--text2); padding: 40px 20px; }
 
 /* ---- Lightbox ---- */
 .lightbox { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 200; flex-direction: column; align-items: center; justify-content: center; }
 .lightbox.open { display: flex; }
-.lightbox img, .lightbox video { max-width: 95%; max-height: 75vh; border-radius: 8px; }
+.lightbox img, .lightbox video { max-width: 95%; max-height: 75vh; border-radius: 8px; background: #000; }
 .lightbox-actions { display: flex; gap: 12px; margin-top: 16px; }
 .lightbox-actions button { padding: 12px 24px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
 .lightbox-close { background: var(--surface2); color: var(--text); }
@@ -351,10 +375,21 @@ body { display: flex; flex-direction: column; }
 
   <!-- Tab 4: Gallery -->
   <div class="tab-content" id="tab-gallery">
-    <div class="gallery-filters">
-      <button class="filter-btn active" data-filter="all">All</button>
-      <button class="filter-btn" data-filter="photo">Photos</button>
-      <button class="filter-btn" data-filter="recording">Videos</button>
+    <div class="gallery-filter-row">
+      <div class="gallery-filter-label">Type</div>
+      <div class="gallery-filters" id="gallery-type-filters">
+        <button class="filter-btn active" data-filter-group="type" data-filter-value="all">All</button>
+        <button class="filter-btn" data-filter-group="type" data-filter-value="photo">Photos</button>
+        <button class="filter-btn" data-filter-group="type" data-filter-value="recording">Videos</button>
+      </div>
+    </div>
+    <div class="gallery-filter-row">
+      <div class="gallery-filter-label">Version</div>
+      <div class="gallery-filters" id="gallery-variant-filters">
+        <button class="filter-btn active" data-filter-group="variant" data-filter-value="all">All</button>
+        <button class="filter-btn" data-filter-group="variant" data-filter-value="edited">Edited</button>
+        <button class="filter-btn" data-filter-group="variant" data-filter-value="raw">Original</button>
+      </div>
     </div>
     <div class="gallery-grid" id="gallery-grid"></div>
     <div class="gallery-empty" id="gallery-empty" style="display:none">No files yet. Take some photos!</div>
@@ -387,7 +422,7 @@ body { display: flex; flex-direction: column; }
   <div id="lightbox-media"></div>
   <div class="lightbox-actions">
     <button class="lightbox-close" id="lb-close">Close</button>
-    <a id="lb-download" class="lightbox-actions"><button class="lightbox-download">Download</button></a>
+    <button class="lightbox-download" id="lb-download">Download</button>
     <button class="lightbox-delete" id="lb-delete">Delete</button>
   </div>
 </div>
@@ -421,7 +456,8 @@ body { display: flex; flex-direction: column; }
   let hubUrl = '';
   let qrVersion = 0;
   let galleryItems = [];
-  let galleryFilter = 'all';
+  let galleryTypeFilter = 'all';
+  let galleryVariantFilter = 'all';
   let lightboxFile = null;
   let updatingFromWS = false;
   let tvSource = 'camera';
@@ -452,6 +488,97 @@ body { display: flex; flex-direction: column; }
   const lbClose = $id('lb-close');
   const lbDownload = $id('lb-download');
   const lbDelete = $id('lb-delete');
+
+  function isAppleMobileDevice() {
+    return /iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+  }
+
+  function isAbortError(error) {
+    return error && (error.name === 'AbortError' || error.message === 'The request is aborted');
+  }
+
+  function buildGalleryAssetUrls(item) {
+    const encodedPath = encodeURIComponent(item.filename);
+    return {
+      fileUrl: '/api/gallery/file?path=' + encodedPath,
+      videoUrl: '/api/gallery/video?path=' + encodedPath,
+      thumbUrl: '/api/gallery/thumbnail?path=' + encodedPath
+    };
+  }
+
+  function fallbackDownload(url, filename) {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.rel = 'noopener';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+
+  function openMediaInNewTab(url) {
+    const popup = window.open(url, '_blank', 'noopener');
+    if (!popup) {
+      window.location.href = url;
+    }
+  }
+
+  async function shareGalleryFile(url, filename, mimeType, title) {
+    if (!navigator.share || !navigator.canShare || typeof File === 'undefined') return false;
+
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Failed to fetch media');
+
+    const blob = await response.blob();
+    const file = new File([blob], filename, { type: mimeType || blob.type || 'application/octet-stream' });
+    if (!navigator.canShare({ files: [file] })) return false;
+
+    await navigator.share({ files: [file], title: title || filename });
+    return true;
+  }
+
+  async function handleLightboxDownload() {
+    if (!lightboxFile) return;
+
+    const urls = buildGalleryAssetUrls(lightboxFile);
+    const isVideo = lightboxFile.type === 'recording';
+    const targetUrl = isVideo ? urls.videoUrl : urls.fileUrl;
+    const shouldOpenInlineOnIos = isVideo && isAppleMobileDevice() && !window.isSecureContext;
+    const buttonLabel = isVideo
+      ? (shouldOpenInlineOnIos ? 'Open in Safari' : 'Save to Photos')
+      : 'Save';
+    lbDownload.disabled = true;
+    lbDownload.textContent = isVideo
+      ? (shouldOpenInlineOnIos ? 'Opening...' : 'Preparing...')
+      : 'Saving...';
+
+    try {
+      if (shouldOpenInlineOnIos) {
+        openMediaInNewTab(targetUrl);
+        return;
+      }
+
+      const shared = await shareGalleryFile(
+        targetUrl,
+        lightboxFile.name,
+        isVideo ? 'video/mp4' : '',
+        lightboxFile.name
+      );
+      if (!shared) fallbackDownload(targetUrl, lightboxFile.name);
+    } catch (e) {
+      if (!isAbortError(e)) {
+        console.error('lightbox download', e);
+        fallbackDownload(targetUrl, lightboxFile.name);
+      }
+    } finally {
+      lbDownload.disabled = false;
+      lbDownload.textContent = buttonLabel;
+    }
+  }
+
+  lbDownload.addEventListener('click', () => {
+    handleLightboxDownload();
+  });
 
   function refreshQrImage() {
     qrImage.src = '/api/qr?v=' + qrVersion;
@@ -776,10 +903,16 @@ body { display: flex; flex-direction: column; }
 
   // ---- Gallery ----
   document.querySelectorAll('.filter-btn').forEach(btn => {
+    if (!btn.dataset.filterGroup) return;
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      const group = btn.dataset.filterGroup;
+      document.querySelectorAll('.filter-btn[data-filter-group="' + group + '"]').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      galleryFilter = btn.dataset.filter;
+      if (group === 'type') {
+        galleryTypeFilter = btn.dataset.filterValue;
+      } else if (group === 'variant') {
+        galleryVariantFilter = btn.dataset.filterValue;
+      }
       renderGallery();
     });
   });
@@ -794,34 +927,57 @@ body { display: flex; flex-direction: column; }
   }
 
   function renderGallery() {
-    const filtered = galleryFilter === 'all'
-      ? galleryItems
-      : galleryItems.filter(i => i.type === galleryFilter);
+    const filtered = galleryItems.filter(item => {
+      const matchesType = galleryTypeFilter === 'all' || item.type === galleryTypeFilter;
+      const matchesVariant = galleryVariantFilter === 'all' || item.variant === galleryVariantFilter;
+      return matchesType && matchesVariant;
+    });
 
     galleryGrid.innerHTML = '';
     galleryEmpty.style.display = filtered.length === 0 ? 'block' : 'none';
+    if (filtered.length === 0) {
+      const typeLabel = galleryTypeFilter === 'all' ? 'items' : galleryTypeFilter === 'photo' ? 'photos' : 'videos';
+      const variantLabel = galleryVariantFilter === 'all' ? '' : galleryVariantFilter === 'edited' ? ' edited' : ' original';
+      galleryEmpty.textContent = 'No' + variantLabel + ' ' + typeLabel + ' yet.';
+    }
 
     filtered.forEach(item => {
       const div = document.createElement('div');
       div.className = 'gallery-item';
-      const url = '/api/gallery/file?path=' + encodeURIComponent(item.filename);
+      const urls = buildGalleryAssetUrls(item);
+      const fileUrl = urls.fileUrl;
+      const thumbUrl = urls.thumbUrl;
 
       if (item.type === 'recording') {
-        const vid = document.createElement('video');
-        vid.src = url;
-        vid.muted = true;
-        vid.preload = 'metadata';
-        div.appendChild(vid);
-        const badge = document.createElement('span');
-        badge.className = 'badge';
-        badge.textContent = 'VID';
-        div.appendChild(badge);
+        const img = document.createElement('img');
+        img.src = thumbUrl;
+        img.loading = 'lazy';
+        img.alt = item.name;
+        img.addEventListener('error', () => {
+          img.src = '';
+          img.style.background = '#000';
+        }, { once: true });
+        div.appendChild(img);
+
+        const playIcon = document.createElement('span');
+        playIcon.className = 'play-icon';
+        div.appendChild(playIcon);
       } else {
         const img = document.createElement('img');
-        img.src = url;
+        img.src = fileUrl;
         img.loading = 'lazy';
         div.appendChild(img);
       }
+
+      const kindBadge = document.createElement('span');
+      kindBadge.className = 'badge kind';
+      kindBadge.textContent = item.type === 'recording' ? 'VIDEO' : 'PHOTO';
+      div.appendChild(kindBadge);
+
+      const variantBadge = document.createElement('span');
+      variantBadge.className = 'badge variant';
+      variantBadge.textContent = item.variant_label || (item.variant === 'edited' ? 'EDITED' : 'ORIGINAL');
+      div.appendChild(variantBadge);
 
       div.addEventListener('click', () => openLightbox(item));
       galleryGrid.appendChild(div);
@@ -831,25 +987,34 @@ body { display: flex; flex-direction: column; }
   // ---- Lightbox ----
   function openLightbox(item) {
     lightboxFile = item;
-    const url = '/api/gallery/file?path=' + encodeURIComponent(item.filename);
+    const urls = buildGalleryAssetUrls(item);
+    const fileUrl = urls.fileUrl;
+    const videoUrl = urls.videoUrl;
+    const thumbUrl = urls.thumbUrl;
     lightboxMedia.innerHTML = '';
 
     if (item.type === 'recording') {
       const vid = document.createElement('video');
-      vid.src = url;
+      vid.src = videoUrl;
       vid.controls = true;
       vid.autoplay = true;
+      vid.playsInline = true;
+      vid.preload = 'metadata';
+      vid.poster = thumbUrl;
       vid.style.maxWidth = '95%';
       vid.style.maxHeight = '75vh';
       lightboxMedia.appendChild(vid);
     } else {
       const img = document.createElement('img');
-      img.src = url;
+      img.src = fileUrl;
       lightboxMedia.appendChild(img);
     }
 
-    lbDownload.href = url;
-    lbDownload.download = item.name;
+    const isIosVideo = item.type === 'recording' && isAppleMobileDevice() && !window.isSecureContext;
+    lbDownload.textContent = item.type === 'recording'
+      ? (isIosVideo ? 'Open in Safari' : 'Save to Photos')
+      : 'Download';
+    lbDownload.disabled = false;
     lightbox.classList.add('open');
   }
 

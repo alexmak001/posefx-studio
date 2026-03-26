@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
+import shutil
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -30,6 +33,10 @@ WS_BROADCAST_INTERVAL = 0.25  # seconds between WebSocket state pushes
 
 # Directories to scan for gallery files
 GALLERY_EXTENSIONS = {".jpg", ".jpeg", ".png", ".mp4", ".mov", ".avi"}
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi"}
+_HAS_FFMPEG = shutil.which("ffmpeg") is not None
+_HAS_FFPROBE = shutil.which("ffprobe") is not None
+_GALLERY_CACHE_DIR = Path("data/cache/gallery")
 
 app = FastAPI(title="posefx-studio", docs_url=None, redoc_url=None)
 
@@ -457,13 +464,195 @@ async def delete_snowfall_image(name: str) -> JSONResponse:
 # Gallery endpoints
 # ---------------------------------------------------------------------------
 
-def _scan_gallery() -> list[dict]:
-    """Scan data directories for gallery files."""
+def _get_gallery_variant(path: Path, base_dir: Path) -> str:
+    """Return the gallery variant for a file beneath a capture root.
+
+    Args:
+        path: File path inside the gallery tree.
+        base_dir: Root directory for the capture type.
+
+    Returns:
+        ``edited`` or ``raw`` when the file lives in that subdirectory,
+        otherwise ``unknown``.
+    """
+    try:
+        relative_parts = path.relative_to(base_dir).parts
+    except ValueError:
+        return "unknown"
+
+    if not relative_parts:
+        return "unknown"
+
+    variant = relative_parts[0].lower()
+    if variant in {"edited", "raw"}:
+        return variant
+    return "unknown"
+
+
+def _resolve_gallery_path(path: str | Path) -> Path:
+    """Resolve a gallery path and verify that it is inside allowed capture roots."""
+    file_path = Path(path)
     config = _get_config()
+    allowed_roots = [
+        Path(config.capture.photo_dir).resolve(),
+        Path(config.capture.recording_dir).resolve(),
+    ]
+    resolved = file_path.resolve()
+    if not any(str(resolved).startswith(str(root)) for root in allowed_roots):
+        raise PermissionError("Access denied")
+    return resolved
+
+
+def _gallery_cache_key(path: Path) -> str:
+    """Build a stable cache key for a gallery file version."""
+    stat = path.stat()
+    payload = f"{path.resolve()}:{stat.st_mtime_ns}:{stat.st_size}".encode("utf-8")
+    return hashlib.sha1(payload).hexdigest()
+
+
+def _gallery_cache_path(path: Path, suffix: str) -> Path:
+    """Return the cache path for a derived gallery asset."""
+    _GALLERY_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    return _GALLERY_CACHE_DIR / f"{_gallery_cache_key(path)}{suffix}"
+
+
+def _probe_video_stream(path: Path) -> dict[str, str]:
+    """Probe the first video stream for codec details."""
+    if not _HAS_FFPROBE:
+        return {}
+
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=codec_name,pix_fmt",
+        "-of",
+        "json",
+        str(path),
+    ]
+    try:
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=15)
+        payload = json.loads(result.stdout or "{}")
+        streams = payload.get("streams") or []
+        if not streams:
+            return {}
+        stream = streams[0]
+        return {
+            "codec_name": str(stream.get("codec_name") or ""),
+            "pix_fmt": str(stream.get("pix_fmt") or ""),
+        }
+    except Exception:
+        logger.warning("Failed to probe video stream for %s", path, exc_info=True)
+        return {}
+
+
+def _is_browser_safe_video(path: Path) -> bool:
+    """Return whether the file should play directly in phone browsers."""
+    stream = _probe_video_stream(path)
+    codec_name = stream.get("codec_name", "").lower()
+    pix_fmt = stream.get("pix_fmt", "").lower()
+    return codec_name in {"h264", "hevc"} and pix_fmt in {"yuv420p", "yuvj420p"}
+
+
+def _ensure_gallery_thumbnail(path: Path) -> Path | None:
+    """Generate and cache a JPEG thumbnail for a gallery video."""
+    if not _HAS_FFMPEG:
+        return None
+
+    thumb_path = _gallery_cache_path(path, ".jpg")
+    if thumb_path.exists():
+        return thumb_path
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-ss",
+        "0.1",
+        "-i",
+        str(path),
+        "-frames:v",
+        "1",
+        "-vf",
+        "scale=480:-1",
+        "-q:v",
+        "4",
+        "-update",
+        "1",
+        "-loglevel",
+        "warning",
+        str(thumb_path),
+    ]
+    try:
+        subprocess.run(cmd, check=True, timeout=30)
+        return thumb_path if thumb_path.exists() else None
+    except Exception:
+        logger.warning("Failed to generate gallery thumbnail for %s", path, exc_info=True)
+        try:
+            thumb_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return None
+
+
+def _ensure_browser_safe_video(path: Path) -> Path:
+    """Return a browser-safe video path, transcoding on demand when needed."""
+    if _is_browser_safe_video(path):
+        return path
+
+    if not _HAS_FFMPEG:
+        return path
+
+    cached_path = _gallery_cache_path(path, ".mp4")
+    if cached_path.exists():
+        return cached_path
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(path),
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        "-c:a",
+        "aac",
+        "-loglevel",
+        "warning",
+        str(cached_path),
+    ]
+    try:
+        subprocess.run(cmd, check=True, timeout=120)
+        if cached_path.exists():
+            return cached_path
+    except Exception:
+        logger.warning("Failed to transcode gallery video for %s", path, exc_info=True)
+        try:
+            cached_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+    return path
+
+
+def scan_gallery_items(photo_dir: str | Path, recording_dir: str | Path) -> list[dict]:
+    """Scan photo and recording directories for gallery metadata.
+
+    Args:
+        photo_dir: Root directory where captured photos are stored.
+        recording_dir: Root directory where recordings are stored.
+
+    Returns:
+        Newest-first gallery metadata entries.
+    """
     items: list[dict] = []
     dirs_to_scan = [
-        ("photo", Path(config.capture.photo_dir)),
-        ("recording", Path(config.capture.recording_dir)),
+        ("photo", Path(photo_dir)),
+        ("recording", Path(recording_dir)),
     ]
 
     for file_type, base_dir in dirs_to_scan:
@@ -475,10 +664,13 @@ def _scan_gallery() -> list[dict]:
             if path.name.startswith("."):
                 continue
             stat = path.stat()
+            variant = _get_gallery_variant(path, base_dir)
             items.append({
                 "filename": str(path),
                 "name": path.name,
                 "type": file_type,
+                "variant": variant,
+                "variant_label": "Edited" if variant == "edited" else "Original" if variant == "raw" else "Other",
                 "subdir": path.parent.name,
                 "size": stat.st_size,
                 "created": stat.st_mtime,
@@ -486,6 +678,15 @@ def _scan_gallery() -> list[dict]:
 
     items.sort(key=lambda x: x["created"], reverse=True)
     return items
+
+
+def _scan_gallery() -> list[dict]:
+    """Scan data directories for gallery files."""
+    config = _get_config()
+    return scan_gallery_items(
+        photo_dir=config.capture.photo_dir,
+        recording_dir=config.capture.recording_dir,
+    )
 
 
 @app.get("/api/gallery")
@@ -501,15 +702,9 @@ async def get_gallery_file(path: str) -> FileResponse:
     Args:
         path: Absolute path to the file (from gallery listing).
     """
-    file_path = Path(path)
-    config = _get_config()
-    allowed_roots = [
-        Path(config.capture.photo_dir).resolve(),
-        Path(config.capture.recording_dir).resolve(),
-    ]
-
-    resolved = file_path.resolve()
-    if not any(str(resolved).startswith(str(root)) for root in allowed_roots):
+    try:
+        resolved = _resolve_gallery_path(path)
+    except PermissionError:
         return JSONResponse({"error": "Access denied"}, status_code=403)
 
     if not resolved.is_file():
@@ -518,22 +713,55 @@ async def get_gallery_file(path: str) -> FileResponse:
     return FileResponse(str(resolved))
 
 
+@app.get("/api/gallery/video")
+async def get_gallery_video(path: str) -> FileResponse:
+    """Serve a browser-safe version of a gallery recording."""
+    try:
+        resolved = _resolve_gallery_path(path)
+    except PermissionError:
+        return JSONResponse({"error": "Access denied"}, status_code=403)
+
+    if not resolved.is_file() or resolved.suffix.lower() not in VIDEO_EXTENSIONS:
+        return JSONResponse({"error": "File not found"}, status_code=404)
+
+    playable_path = _ensure_browser_safe_video(resolved)
+    return FileResponse(str(playable_path), media_type="video/mp4")
+
+
+@app.get("/api/gallery/thumbnail")
+async def get_gallery_thumbnail(path: str) -> FileResponse:
+    """Serve a cached thumbnail for a gallery recording."""
+    try:
+        resolved = _resolve_gallery_path(path)
+    except PermissionError:
+        return JSONResponse({"error": "Access denied"}, status_code=403)
+
+    if not resolved.is_file() or resolved.suffix.lower() not in VIDEO_EXTENSIONS:
+        return JSONResponse({"error": "File not found"}, status_code=404)
+
+    thumb_path = _ensure_gallery_thumbnail(resolved)
+    if thumb_path is None:
+        return JSONResponse({"error": "Thumbnail unavailable"}, status_code=503)
+    return FileResponse(str(thumb_path), media_type="image/jpeg")
+
+
 @app.delete("/api/gallery/file")
 async def delete_gallery_file(path: str) -> JSONResponse:
     """Delete a gallery file."""
-    file_path = Path(path)
-    config = _get_config()
-    allowed_roots = [
-        Path(config.capture.photo_dir).resolve(),
-        Path(config.capture.recording_dir).resolve(),
-    ]
-
-    resolved = file_path.resolve()
-    if not any(str(resolved).startswith(str(root)) for root in allowed_roots):
+    try:
+        resolved = _resolve_gallery_path(path)
+    except PermissionError:
         return JSONResponse({"error": "Access denied"}, status_code=403)
 
     if not resolved.is_file():
         return JSONResponse({"error": "File not found"}, status_code=404)
+
+    if resolved.suffix.lower() in VIDEO_EXTENSIONS:
+        for cached_path in (
+            _gallery_cache_path(resolved, ".jpg"),
+            _gallery_cache_path(resolved, ".mp4"),
+        ):
+            cached_path.unlink(missing_ok=True)
 
     resolved.unlink()
     logger.info("Deleted gallery file: %s", resolved)
