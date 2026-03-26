@@ -578,37 +578,32 @@ _ALLOWED_VIDEO_EXT = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 
 @app.post("/api/media/upload")
 async def media_upload(file: UploadFile) -> JSONResponse:
-    """Upload a video and immediately play it on the TV."""
+    """Upload a video and return a URL for in-browser playback."""
     if not file.filename:
         return JSONResponse({"error": "No file"}, status_code=400)
     ext = Path(file.filename).suffix.lower()
     if ext not in _ALLOWED_VIDEO_EXT:
         return JSONResponse({"error": f"Unsupported format: {ext}"}, status_code=400)
 
-    # Save file
     dest = _MEDIA_DIR / f"upload_{int(time.time())}{ext}"
     data = await file.read()
     dest.write_bytes(data)
 
-    # Switch to media mode and play
-    engine = _get_engine()
-    engine.set_tv_source("media")
-    if _tv_player:
-        ok = _tv_player.play(str(dest), title=file.filename)
-        if not ok:
-            engine.set_tv_source("camera")
-            return JSONResponse({"error": "Playback failed (mpv not installed?)"}, status_code=503)
-    return JSONResponse({"status": "playing", "title": file.filename})
+    return JSONResponse({
+        "url": f"/api/media/file?path={dest.name}",
+        "title": file.filename,
+    })
 
 
-@app.post("/api/media/stop")
-async def media_stop() -> JSONResponse:
-    """Stop video playback and return to camera."""
-    if _tv_player:
-        _tv_player.stop()
-    engine = _get_engine()
-    engine.set_tv_source("camera")
-    return JSONResponse({"status": "idle"})
+@app.get("/api/media/file")
+async def media_file(path: str = "") -> Response:
+    """Serve an uploaded media file."""
+    if not path or ".." in path or "/" in path:
+        return JSONResponse({"error": "Invalid path"}, status_code=400)
+    fpath = _MEDIA_DIR / path
+    if not fpath.exists():
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return FileResponse(fpath)
 
 
 # ---------------------------------------------------------------------------

@@ -279,7 +279,7 @@ body { display: flex; flex-direction: column; }
 
     <!-- Play Video section (always visible) -->
     <div class="toggle-row" style="flex-wrap:wrap;gap:8px;margin-top:var(--gap)" id="video-upload-section">
-      <label style="width:100%;font-size:14px;font-weight:600">Play Video on TV</label>
+      <label style="width:100%;font-size:14px;font-weight:600">Play Video</label>
       <div style="display:flex;gap:8px;width:100%;align-items:center">
         <label class="avatar-upload-btn" id="video-upload-label" style="flex:1;text-align:center">
           Upload Video
@@ -288,8 +288,8 @@ body { display: flex; flex-direction: column; }
         <span id="video-upload-status" style="font-size:13px;color:var(--text2)"></span>
       </div>
     </div>
+    <div id="video-player-wrap" style="display:none;margin-top:8px"></div>
     <div class="toggle-row" style="gap:12px;margin-top:8px;display:none" id="video-playing-bar">
-      <span style="font-size:12px;color:var(--green);flex-shrink:0" id="video-playing-status">Playing</span>
       <span style="font-size:14px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="video-playing-title"></span>
       <button class="avatar-clear-btn" id="video-stop-btn" style="padding:8px 16px">Stop</button>
     </div>
@@ -1010,8 +1010,6 @@ body { display: flex; flex-direction: column; }
         if (state.tv_source && state.tv_source !== tvSource) {
           tvSource = state.tv_source;
           renderTvSource();
-          // Video ended — hide playing bar when back to camera
-          if (tvSource === 'camera') updateVideoBar(false, '');
         }
 
         // Countdown badge
@@ -1167,12 +1165,30 @@ body { display: flex; flex-direction: column; }
   const videoStatus = $id('video-upload-status');
   const videoPlayingBar = $id('video-playing-bar');
   const videoPlayingTitle = $id('video-playing-title');
-  const videoPlayingStatus = $id('video-playing-status');
   const videoStopBtn = $id('video-stop-btn');
+  const videoPlayerWrap = $id('video-player-wrap');
 
-  function updateVideoBar(playing, title) {
-    videoPlayingBar.style.display = playing ? 'flex' : 'none';
+  function showVideoPlayer(url, title) {
+    videoPlayerWrap.innerHTML = '';
+    const vid = document.createElement('video');
+    vid.src = url;
+    vid.controls = true;
+    vid.autoplay = true;
+    vid.playsInline = true;
+    vid.style.cssText = 'width:100%;border-radius:var(--radius)';
+    vid.addEventListener('ended', () => hideVideoPlayer());
+    videoPlayerWrap.appendChild(vid);
+    videoPlayerWrap.style.display = 'block';
+    videoPlayingBar.style.display = 'flex';
     videoPlayingTitle.textContent = title || '';
+  }
+
+  function hideVideoPlayer() {
+    const vid = videoPlayerWrap.querySelector('video');
+    if (vid) { vid.pause(); vid.src = ''; }
+    videoPlayerWrap.innerHTML = '';
+    videoPlayerWrap.style.display = 'none';
+    videoPlayingBar.style.display = 'none';
   }
 
   videoInput.addEventListener('change', async () => {
@@ -1187,7 +1203,7 @@ body { display: flex; flex-direction: column; }
       const data = await res.json();
       if (res.ok) {
         videoStatus.textContent = '';
-        updateVideoBar(true, file.name);
+        showVideoPlayer(data.url, file.name);
       } else {
         videoStatus.textContent = data.error || 'Failed';
         videoStatus.style.color = 'var(--red)';
@@ -1201,12 +1217,7 @@ body { display: flex; flex-direction: column; }
     setTimeout(() => { videoStatus.textContent = ''; }, 4000);
   });
 
-  videoStopBtn.addEventListener('click', async () => {
-    try {
-      await fetch('/api/media/stop', { method: 'POST' });
-      updateVideoBar(false, '');
-    } catch (e) { console.error('video-stop', e); }
-  });
+  videoStopBtn.addEventListener('click', () => hideVideoPlayer());
 
   // ---- Init ----
   connectWS();
