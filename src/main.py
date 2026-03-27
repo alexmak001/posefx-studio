@@ -64,7 +64,7 @@ def main() -> None:
         source = WebcamCapture(config.camera)
         logger.info("Using webcam input")
 
-    preview = PreviewWindow()
+    preview = PreviewWindow(fullscreen=config.display.fullscreen)
     fps_counter = FPSCounter()
 
     # Start audio capture if enabled (before engine so we can pass it in)

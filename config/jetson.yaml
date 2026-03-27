@@ -1,0 +1,60 @@
+camera:
+  device_id: 0
+  width: 1280
+  height: 720
+  fps: 30
+
+inference:
+  pose_model: "yolov8n-pose.pt"
+  seg_model: "yolov8n-seg.pt"
+  device: "cpu"
+  confidence_threshold: 0.5
+  inference_scale: 0.5
+
+effects:
+  default: "neon_wireframe"
+
+audio:
+  enabled: true
+  device_index: null
+  sample_rate: 44100
+  chunk_size: 1024
+  bass_low_hz: 20
+  bass_high_hz: 200
+  smoothing_attack: 0.3
+  smoothing_decay: 0.05
+  sensitivity: 2.0
+  noise_gate: 2000.0
+
+capture:
+  photo_dir: "data/photos"
+  recording_dir: "data/recordings"
+  edited_subdir: "edited"
+  raw_subdir: "raw"
+  photo_mode: "both"
+  record_mode: "both"
+  photo_quality: 95
+  auto_capture_interval: 15
+  countdown_seconds: 3
+
+display:
+  fullscreen: true
+
+web:
+  enabled: true
+  host: "0.0.0.0"
+  port: 8000
+  stream_quality: 60
+  stream_max_fps: 15
+  qr_visible_on_startup: true
+
+youtube:
+  enabled: true
+  max_search_results: 10
+  max_duration_seconds: 0
+
+debug:
+  show_skeleton: true
+  show_mask: true
+  show_fps: true
+  show_keypoint_confidence: true

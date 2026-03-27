@@ -89,6 +89,12 @@ class CaptureConfig:
 
 
 @dataclass
+class DisplayConfig:
+    """Preview window settings."""
+    fullscreen: bool = False
+
+
+@dataclass
 class WebConfig:
     """Web server settings."""
     enabled: bool = True
@@ -118,6 +124,7 @@ class AppConfig:
     capture: CaptureConfig = field(default_factory=CaptureConfig)
     web: WebConfig = field(default_factory=WebConfig)
     youtube: YouTubeConfig = field(default_factory=YouTubeConfig)
+    display: DisplayConfig = field(default_factory=DisplayConfig)
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -150,4 +157,5 @@ def load_config(path: str | Path) -> AppConfig:
         capture=CaptureConfig(**raw.get("capture", {})),
         web=WebConfig(**raw.get("web", {})),
         youtube=YouTubeConfig(**raw.get("youtube", {})),
+        display=DisplayConfig(**raw.get("display", {})),
     )
