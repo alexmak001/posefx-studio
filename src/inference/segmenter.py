@@ -25,7 +25,8 @@ class YOLOSegmenter(BaseSegmenter):
 
     def __init__(self, config: InferenceConfig) -> None:
         self._device = _resolve_device(config.device)
-        logger.info("Loading seg model: %s on device: %s", config.seg_model, self._device)
+        self._half = self._device == "cuda"
+        logger.info("Loading seg model: %s on device: %s (half=%s)", config.seg_model, self._device, self._half)
         self._model = YOLO(config.seg_model)
         self._conf = config.confidence_threshold
 
@@ -45,6 +46,8 @@ class YOLOSegmenter(BaseSegmenter):
             device=self._device,
             conf=self._conf,
             classes=[PERSON_CLASS_ID],
+            imgsz=320,
+            half=self._half,
             verbose=False,
         )
         result = results[0]

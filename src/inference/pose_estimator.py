@@ -32,7 +32,8 @@ class YOLOPoseEstimator(BasePoseEstimator):
 
     def __init__(self, config: InferenceConfig) -> None:
         self._device = _resolve_device(config.device)
-        logger.info("Loading pose model: %s on device: %s", config.pose_model, self._device)
+        self._half = self._device == "cuda"
+        logger.info("Loading pose model: %s on device: %s (half=%s)", config.pose_model, self._device, self._half)
         self._model = YOLO(config.pose_model)
         self._conf = config.confidence_threshold
 
@@ -49,6 +50,8 @@ class YOLOPoseEstimator(BasePoseEstimator):
             frame,
             device=self._device,
             conf=self._conf,
+            imgsz=320,
+            half=self._half,
             verbose=False,
         )
         result = results[0]
