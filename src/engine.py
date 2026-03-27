@@ -111,7 +111,7 @@ class PartyEngine:
         self._fps = 0.0
         self._avatar_image: np.ndarray | None = None
         self._avatar_dir = Path("data/avatars")
-        self._puppet_opacity = 0.7
+        self._puppet_opacity = 1.0
         self._hub_url: str | None = None
         self._qr_visible = config.web.qr_visible_on_startup
         self._qr_png_bytes: bytes | None = None
