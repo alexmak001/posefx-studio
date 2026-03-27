@@ -50,6 +50,16 @@ youtube:
   max_search_results: 10
   max_duration_seconds: 0
 
+ai:
+  enabled: true
+  results_dir: "data/ai_results"
+  uploads_dir: "data/uploads"
+  max_upload_size_mb: 50
+  replicate_model_face_swap: "lucataco/faceswap"
+  replicate_model_video_swap: "xiankgx/face-swap"
+  replicate_model_edit: "black-forest-labs/flux-kontext-pro"
+  replicate_model_video_gen: "minimax/video-01-live"
+
 debug:
   show_skeleton: true
   show_mask: true

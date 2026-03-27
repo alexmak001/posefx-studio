@@ -7,8 +7,21 @@ Usage:
 
 import argparse
 import logging
+import os
+from pathlib import Path
 
 import cv2
+
+# Load .env file if present (no dependency needed)
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+if _env_path.is_file():
+    for line in _env_path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, _, value = line.partition("=")
+            key, value = key.strip(), value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
 
 from src.audio.capture import AudioCapture
 from src.engine import PartyEngine

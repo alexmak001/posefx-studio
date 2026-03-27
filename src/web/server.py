@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -48,6 +49,9 @@ _ws_clients: set[WebSocket] = set()
 # YouTube services (set in start_server when youtube is enabled)
 _youtube_service = None  # YouTubeService | None
 _tv_player = None  # TVPlayer | None
+
+# AI Lab service (set in start_server when ai is enabled)
+_replicate_service = None  # ReplicateService | None
 
 
 def _get_engine() -> PartyEngine:
@@ -496,6 +500,7 @@ def _resolve_gallery_path(path: str | Path) -> Path:
     allowed_roots = [
         Path(config.capture.photo_dir).resolve(),
         Path(config.capture.recording_dir).resolve(),
+        Path(config.ai.results_dir).resolve(),
     ]
     resolved = file_path.resolve()
     if not any(str(resolved).startswith(str(root)) for root in allowed_roots):
@@ -683,10 +688,31 @@ def scan_gallery_items(photo_dir: str | Path, recording_dir: str | Path) -> list
 def _scan_gallery() -> list[dict]:
     """Scan data directories for gallery files."""
     config = _get_config()
-    return scan_gallery_items(
+    items = scan_gallery_items(
         photo_dir=config.capture.photo_dir,
         recording_dir=config.capture.recording_dir,
     )
+    # Also scan AI results
+    ai_dir = Path(config.ai.results_dir)
+    if ai_dir.exists():
+        for path in sorted(ai_dir.rglob("*"), reverse=True):
+            if not path.is_file() or path.suffix.lower() not in GALLERY_EXTENSIONS:
+                continue
+            if path.name.startswith("."):
+                continue
+            stat = path.stat()
+            items.append({
+                "filename": str(path),
+                "name": path.name,
+                "type": "ai_result",
+                "variant": "ai",
+                "variant_label": "AI",
+                "subdir": "ai_results",
+                "size": stat.st_size,
+                "created": stat.st_mtime,
+            })
+    items.sort(key=lambda x: x["created"], reverse=True)
+    return items
 
 
 @app.get("/api/gallery")
@@ -900,37 +926,239 @@ async def youtube_status() -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
-# AI Lab stubs (Step 7)
+# AI Lab (Step 7)
 # ---------------------------------------------------------------------------
 
+_AI_UPLOAD_DIR = Path("data/uploads")
+_AI_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+_event_loop: asyncio.AbstractEventLoop | None = None
+
+
+@app.on_event("startup")
+async def _capture_event_loop() -> None:
+    global _event_loop
+    _event_loop = asyncio.get_running_loop()
+
+
+def _on_ai_job_update(job) -> None:
+    """Broadcast AI job status change to all WebSocket clients (thread-safe)."""
+    if not _replicate_service or not _event_loop:
+        return
+    payload = json.dumps({
+        "type": "ai_job_update",
+        "job": _replicate_service.job_to_dict(job),
+    })
+
+    async def _broadcast():
+        for ws in list(_ws_clients):
+            try:
+                await ws.send_text(payload)
+            except Exception:
+                pass
+
+    _event_loop.call_soon_threadsafe(asyncio.ensure_future, _broadcast())
+
+
+async def _save_upload(file: UploadFile, prefix: str) -> str:
+    """Save an uploaded file and return its path."""
+    config = _get_config()
+    max_bytes = config.ai.max_upload_size_mb * 1024 * 1024
+    data = await file.read()
+    if len(data) > max_bytes:
+        raise ValueError(f"File too large (max {config.ai.max_upload_size_mb}MB)")
+    ext = Path(file.filename or "file").suffix.lower() or ".bin"
+    dest = _AI_UPLOAD_DIR / f"{prefix}_{int(time.time())}_{uuid.uuid4().hex[:6]}{ext}"
+    dest.write_bytes(data)
+    return str(dest)
+
+
 @app.post("/api/ai/face-swap")
-async def ai_face_swap() -> JSONResponse:
-    """Face swap (stub)."""
-    return JSONResponse({"error": "Not implemented"}, status_code=501)
+async def ai_face_swap(
+    source_image: UploadFile,
+    target_image: UploadFile | None = None,
+    template_id: str | None = None,
+) -> JSONResponse:
+    """Submit a face swap job."""
+    if not _replicate_service:
+        return JSONResponse({"error": "AI Lab not enabled"}, status_code=503)
+    if not _replicate_service.is_configured:
+        return JSONResponse({"error": "REPLICATE_API_TOKEN not set"}, status_code=503)
+    try:
+        source_path = await _save_upload(source_image, "faceswap_src")
+        if template_id:
+            target_path = _resolve_template(template_id)
+            if not target_path:
+                return JSONResponse({"error": "Template not found"}, status_code=404)
+        elif target_image:
+            target_path = await _save_upload(target_image, "faceswap_tgt")
+        else:
+            return JSONResponse({"error": "Provide target_image or template_id"}, status_code=400)
+        job_id = _replicate_service.face_swap_image(source_path, target_path)
+        return JSONResponse({"job_id": job_id})
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=413)
+    except RuntimeError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=503)
 
 
 @app.post("/api/ai/face-swap-video")
-async def ai_face_swap_video() -> JSONResponse:
-    """Video face swap (stub)."""
-    return JSONResponse({"error": "Not implemented"}, status_code=501)
+async def ai_face_swap_video(
+    source_image: UploadFile,
+    target_video: UploadFile,
+) -> JSONResponse:
+    """Submit a video face swap job."""
+    if not _replicate_service:
+        return JSONResponse({"error": "AI Lab not enabled"}, status_code=503)
+    if not _replicate_service.is_configured:
+        return JSONResponse({"error": "REPLICATE_API_TOKEN not set"}, status_code=503)
+    try:
+        source_path = await _save_upload(source_image, "vidswap_src")
+        video_path = await _save_upload(target_video, "vidswap_vid")
+        job_id = _replicate_service.face_swap_video(source_path, video_path)
+        return JSONResponse({"job_id": job_id})
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=413)
+    except RuntimeError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=503)
 
 
 @app.post("/api/ai/edit")
-async def ai_edit() -> JSONResponse:
-    """AI edit (stub)."""
-    return JSONResponse({"error": "Not implemented"}, status_code=501)
+async def ai_edit(image: UploadFile, request: Request) -> JSONResponse:
+    """Submit an AI image edit job."""
+    if not _replicate_service:
+        return JSONResponse({"error": "AI Lab not enabled"}, status_code=503)
+    if not _replicate_service.is_configured:
+        return JSONResponse({"error": "REPLICATE_API_TOKEN not set"}, status_code=503)
+    form = await request.form()
+    prompt = form.get("prompt", "")
+    if not prompt:
+        return JSONResponse({"error": "Missing prompt"}, status_code=400)
+    try:
+        image_path = await _save_upload(image, "edit_img")
+        job_id = _replicate_service.edit_image(image_path, str(prompt))
+        return JSONResponse({"job_id": job_id})
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=413)
+    except RuntimeError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=503)
+
+
+@app.post("/api/ai/generate-video")
+async def ai_generate_video(face_image: UploadFile, request: Request) -> JSONResponse:
+    """Submit an AI video generation job (face + prompt)."""
+    if not _replicate_service:
+        return JSONResponse({"error": "AI Lab not enabled"}, status_code=503)
+    if not _replicate_service.is_configured:
+        return JSONResponse({"error": "REPLICATE_API_TOKEN not set"}, status_code=503)
+    form = await request.form()
+    prompt = form.get("prompt", "")
+    if not prompt:
+        return JSONResponse({"error": "Missing prompt"}, status_code=400)
+    try:
+        face_path = await _save_upload(face_image, "vidgen_face")
+        job_id = _replicate_service.generate_video(face_path, str(prompt))
+        return JSONResponse({"job_id": job_id})
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=413)
+    except RuntimeError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=503)
 
 
 @app.get("/api/ai/jobs")
 async def ai_jobs() -> JSONResponse:
-    """List AI jobs (stub)."""
-    return JSONResponse({"jobs": []})
+    """List all AI jobs, newest first."""
+    if not _replicate_service:
+        return JSONResponse({"jobs": []})
+    jobs = _replicate_service.get_all_jobs()
+    return JSONResponse({"jobs": [_replicate_service.job_to_dict(j) for j in jobs]})
 
 
 @app.get("/api/ai/jobs/{job_id}")
 async def ai_job(job_id: str) -> JSONResponse:
-    """Get AI job status (stub)."""
-    return JSONResponse({"error": "Not found"}, status_code=404)
+    """Get a specific AI job status."""
+    if not _replicate_service:
+        return JSONResponse({"error": "AI Lab not enabled"}, status_code=503)
+    job = _replicate_service.get_job(job_id)
+    if job is None:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return JSONResponse(_replicate_service.job_to_dict(job))
+
+
+@app.get("/api/ai/results/{filename}")
+async def ai_result_file(filename: str) -> FileResponse:
+    """Serve an AI result file."""
+    config = _get_config()
+    results_dir = Path(config.ai.results_dir).resolve()
+    file_path = (results_dir / filename).resolve()
+    if not str(file_path).startswith(str(results_dir)) or not file_path.is_file():
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return FileResponse(str(file_path))
+
+
+@app.post("/api/ai/jobs/{job_id}/play-tv")
+async def ai_play_on_tv(job_id: str) -> JSONResponse:
+    """Play an AI video result on the TV."""
+    if not _replicate_service:
+        return JSONResponse({"error": "AI Lab not enabled"}, status_code=503)
+    job = _replicate_service.get_job(job_id)
+    if job is None:
+        return JSONResponse({"error": "Job not found"}, status_code=404)
+    if not job.result_path:
+        return JSONResponse({"error": "No result file"}, status_code=400)
+    if not _tv_player:
+        return JSONResponse({"error": "TV player not available"}, status_code=503)
+    engine = _get_engine()
+    engine.set_tv_source("media")
+    ok = _tv_player.play(job.result_path, title=f"AI: {job.job_type.value}")
+    if not ok:
+        engine.set_tv_source("camera")
+        return JSONResponse({"error": "Playback failed"}, status_code=503)
+    return JSONResponse({"status": "playing"})
+
+
+# ---------------------------------------------------------------------------
+# AI Templates
+# ---------------------------------------------------------------------------
+
+_TEMPLATES_DIR = Path(__file__).parent.parent / "assets" / "templates"
+
+
+def _resolve_template(template_id: str) -> str | None:
+    """Resolve a template ID to a file path."""
+    if not _TEMPLATES_DIR.exists():
+        return None
+    path = (_TEMPLATES_DIR / template_id).resolve()
+    if not str(path).startswith(str(_TEMPLATES_DIR.resolve())):
+        return None
+    if not path.is_file():
+        return None
+    return str(path)
+
+
+@app.get("/api/ai/templates")
+async def ai_templates() -> JSONResponse:
+    """List built-in face swap template images."""
+    templates = []
+    if _TEMPLATES_DIR.exists():
+        for p in sorted(_TEMPLATES_DIR.iterdir()):
+            if p.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"} and not p.name.startswith("."):
+                templates.append({
+                    "id": p.name,
+                    "name": p.stem.replace("_", " ").replace("-", " ").title(),
+                    "url": f"/api/ai/templates/{p.name}",
+                })
+    return JSONResponse({"templates": templates})
+
+
+@app.get("/api/ai/templates/{name}")
+async def ai_template_file(name: str) -> FileResponse:
+    """Serve a template image."""
+    path = _resolve_template(name)
+    if not path:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return FileResponse(path)
 
 
 # ---------------------------------------------------------------------------
@@ -951,6 +1179,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 state["youtube"] = _tv_player.get_status()
             else:
                 state["youtube"] = {"status": "idle", "title": ""}
+            state["ai_configured"] = _replicate_service.is_configured if _replicate_service else False
             await ws.send_text(json.dumps(state))
             await asyncio.sleep(WS_BROADCAST_INTERVAL)
     except (WebSocketDisconnect, Exception):
@@ -974,7 +1203,7 @@ def start_server(engine: PartyEngine, config: AppConfig) -> threading.Thread:
     Returns:
         The background thread running uvicorn.
     """
-    global _engine, _config, _youtube_service, _tv_player
+    global _engine, _config, _youtube_service, _tv_player, _replicate_service
     _engine = engine
     _config = config
 
@@ -991,6 +1220,14 @@ def start_server(engine: PartyEngine, config: AppConfig) -> threading.Thread:
         _youtube_service = YouTubeService(
             max_results=config.youtube.max_search_results,
             max_duration=config.youtube.max_duration_seconds,
+        )
+
+    # Initialize AI Lab service
+    if config.ai.enabled:
+        from src.services.replicate_service import ReplicateService
+        _replicate_service = ReplicateService(
+            config.ai,
+            on_status_change=_on_ai_job_update,
         )
 
     def _run() -> None:

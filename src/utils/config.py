@@ -114,6 +114,19 @@ class YouTubeConfig:
 
 
 @dataclass
+class AIConfig:
+    """AI Lab settings (Replicate API)."""
+    enabled: bool = True
+    results_dir: str = "data/ai_results"
+    uploads_dir: str = "data/uploads"
+    max_upload_size_mb: int = 50
+    replicate_model_face_swap: str = "lucataco/faceswap"
+    replicate_model_video_swap: str = "xiankgx/face-swap"
+    replicate_model_edit: str = "black-forest-labs/flux-kontext-pro"
+    replicate_model_video_gen: str = "minimax/video-01-live"
+
+
+@dataclass
 class AppConfig:
     """Top-level application config."""
     camera: CameraConfig = field(default_factory=CameraConfig)
@@ -125,6 +138,7 @@ class AppConfig:
     web: WebConfig = field(default_factory=WebConfig)
     youtube: YouTubeConfig = field(default_factory=YouTubeConfig)
     display: DisplayConfig = field(default_factory=DisplayConfig)
+    ai: AIConfig = field(default_factory=AIConfig)
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -158,4 +172,5 @@ def load_config(path: str | Path) -> AppConfig:
         web=WebConfig(**raw.get("web", {})),
         youtube=YouTubeConfig(**raw.get("youtube", {})),
         display=DisplayConfig(**raw.get("display", {})),
+        ai=AIConfig(**raw.get("ai", {})),
     )
