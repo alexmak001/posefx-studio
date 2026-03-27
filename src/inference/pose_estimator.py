@@ -2,6 +2,7 @@
 
 import logging
 
+import torch
 import numpy as np
 from ultralytics import YOLO
 
@@ -9,6 +10,17 @@ from src.inference.base import BasePoseEstimator, PoseResult
 from src.utils.config import InferenceConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_device(requested: str) -> str:
+    """Return the best available device, falling back to cpu if requested is unavailable."""
+    if requested == "cuda" and not torch.cuda.is_available():
+        logger.warning("CUDA requested but not available — falling back to cpu")
+        return "cpu"
+    if requested == "mps" and not torch.backends.mps.is_available():
+        logger.warning("MPS requested but not available — falling back to cpu")
+        return "cpu"
+    return requested
 
 
 class YOLOPoseEstimator(BasePoseEstimator):
@@ -19,9 +31,9 @@ class YOLOPoseEstimator(BasePoseEstimator):
     """
 
     def __init__(self, config: InferenceConfig) -> None:
-        logger.info("Loading pose model: %s on device: %s", config.pose_model, config.device)
+        self._device = _resolve_device(config.device)
+        logger.info("Loading pose model: %s on device: %s", config.pose_model, self._device)
         self._model = YOLO(config.pose_model)
-        self._device = config.device
         self._conf = config.confidence_threshold
 
     def infer(self, frame: np.ndarray) -> PoseResult:

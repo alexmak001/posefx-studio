@@ -7,9 +7,9 @@ camera:
 inference:
   pose_model: "yolov8n-pose.pt"
   seg_model: "yolov8n-seg.pt"
-  device: "cpu"
-  confidence_threshold: 0.5
-  inference_scale: 0.5
+  device: "cuda"        # requires Jetson PyTorch — see below if CUDA unavailable
+  confidence_threshold: 0.45
+  inference_scale: 0.4  # lower = faster inference (was 0.5)
 
 effects:
   default: "neon_wireframe"
@@ -44,8 +44,8 @@ web:
   enabled: true
   host: "0.0.0.0"
   port: 8000
-  stream_quality: 60
-  stream_max_fps: 15
+  stream_quality: 40    # lower quality = less CPU encoding (was 60)
+  stream_max_fps: 10    # fewer stream frames = more CPU for inference (was 15)
   qr_visible_on_startup: true
 
 youtube:
@@ -54,7 +54,7 @@ youtube:
   max_duration_seconds: 0
 
 debug:
-  show_skeleton: true
-  show_mask: true
+  show_skeleton: false  # disable debug overlays to save CPU (was true)
+  show_mask: false
   show_fps: true
-  show_keypoint_confidence: true
+  show_keypoint_confidence: false

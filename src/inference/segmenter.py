@@ -2,12 +2,14 @@
 
 import logging
 
+import torch
 import cv2
 import numpy as np
 from ultralytics import YOLO
 
 from src.inference.base import BaseSegmenter, MaskResult
 from src.utils.config import InferenceConfig
+from src.inference.pose_estimator import _resolve_device
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +24,9 @@ class YOLOSegmenter(BaseSegmenter):
     """
 
     def __init__(self, config: InferenceConfig) -> None:
-        logger.info("Loading seg model: %s on device: %s", config.seg_model, config.device)
+        self._device = _resolve_device(config.device)
+        logger.info("Loading seg model: %s on device: %s", config.seg_model, self._device)
         self._model = YOLO(config.seg_model)
-        self._device = config.device
         self._conf = config.confidence_threshold
 
     def infer(self, frame: np.ndarray) -> MaskResult:
