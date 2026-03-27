@@ -97,10 +97,44 @@ body { display: flex; flex-direction: column; }
 .yt-player iframe { width: 100%; height: 100%; border: none; }
 
 /* ---- AI Lab tab ---- */
-.card { background: var(--surface); border-radius: var(--radius); padding: 16px; margin-bottom: var(--gap); }
-.card h3 { font-size: 15px; margin-bottom: 10px; color: var(--accent); }
-.card p { font-size: 13px; color: var(--text2); margin-bottom: 10px; }
-.card button { width: 100%; padding: 12px; background: var(--surface2); color: var(--text2); border: 1px dashed #444; border-radius: 8px; font-size: 14px; cursor: not-allowed; }
+.ai-card { background: var(--surface); border-radius: var(--radius); padding: 16px; margin-bottom: var(--gap); }
+.ai-card h3 { font-size: 15px; margin-bottom: 8px; color: var(--accent); }
+.ai-card p { font-size: 13px; color: var(--text2); margin-bottom: 10px; }
+.ai-card .ai-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.ai-card .ai-row > * { flex: 1; }
+.ai-upload-btn { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; background: var(--surface2); color: var(--text2); border: 1px dashed #555; border-radius: 8px; font-size: 13px; cursor: pointer; text-align: center; min-height: 44px; }
+.ai-upload-btn.has-file { border-color: var(--accent); color: var(--accent); border-style: solid; }
+.ai-upload-btn input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
+.ai-prompt { width: 100%; padding: 10px; background: var(--surface2); border: 1px solid #333; border-radius: 8px; color: var(--text); font-size: 14px; resize: none; font-family: inherit; }
+.ai-prompt::placeholder { color: #666; }
+.ai-submit { width: 100%; padding: 12px; background: var(--accent); color: #000; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; }
+.ai-submit:disabled { opacity: 0.4; cursor: not-allowed; }
+.ai-templates { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px; }
+.ai-tmpl { width: 100%; aspect-ratio: 1; border-radius: 8px; overflow: hidden; border: 2px solid transparent; cursor: pointer; background: var(--surface2); }
+.ai-tmpl.selected { border-color: var(--accent); }
+.ai-tmpl img { width: 100%; height: 100%; object-fit: cover; }
+.ai-or { text-align: center; font-size: 12px; color: #666; margin: 6px 0; }
+.ai-status { font-size: 12px; color: var(--text2); margin-top: 6px; text-align: center; }
+.ai-unconfigured { text-align: center; padding: 30px 20px; color: var(--text2); }
+.ai-unconfigured .icon { font-size: 40px; display: block; margin-bottom: 10px; }
+.ai-unconfigured code { background: #222; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+#ai-jobs { margin-top: 8px; }
+.ai-job { display: flex; align-items: center; gap: 10px; background: var(--surface); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 6px; cursor: pointer; }
+.ai-job-icon { font-size: 20px; flex-shrink: 0; }
+.ai-job-info { flex: 1; min-width: 0; }
+.ai-job-type { font-size: 13px; font-weight: 500; }
+.ai-job-time { font-size: 11px; color: var(--text2); }
+.ai-job-prompt { font-size: 11px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ai-job-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; flex-shrink: 0; }
+.ai-job-badge.pending { background: #333; color: #aaa; }
+.ai-job-badge.processing { background: #2a2000; color: var(--yellow); }
+.ai-job-badge.done { background: #002a00; color: #4f4; }
+.ai-job-badge.failed { background: #2a0000; color: var(--red); }
+.ai-job-thumb { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; flex-shrink: 0; }
+.ai-job-actions { display: flex; gap: 6px; margin-top: 6px; }
+.ai-job-actions button { padding: 6px 12px; border-radius: 6px; border: none; font-size: 12px; cursor: pointer; }
+.ai-job-dl { background: var(--accent); color: #000; }
+.ai-job-tv { background: var(--surface2); color: var(--text); }
 
 /* ---- Gallery tab ---- */
 .gallery-filters { display: flex; gap: 8px; margin-bottom: var(--gap); overflow-x: auto; flex-wrap: nowrap; }
@@ -288,7 +322,7 @@ body { display: flex; flex-direction: column; }
         <div style="display:flex;gap:8px;width:100%;margin-top:4px">
           <label class="avatar-upload-btn" id="avatar-upload-label">
             Upload Face
-            <input type="file" id="avatar-input" accept="image/*" capture="user" style="display:none">
+            <input type="file" id="avatar-input" accept="image/*" style="display:none">
           </label>
           <button class="avatar-clear-btn" id="avatar-clear" style="display:none">Clear</button>
           <span class="avatar-status" id="avatar-status"></span>
@@ -350,22 +384,46 @@ body { display: flex; flex-direction: column; }
 
   <!-- Tab 3: AI Lab -->
   <div class="tab-content" id="tab-ai">
-    <div class="card">
-      <h3>Face Swap (Image)</h3>
-      <p>Upload your selfie + a target image to swap faces</p>
-      <button disabled>Coming Soon</button>
+    <div id="ai-unconfigured" class="ai-unconfigured" style="display:none;">
+      <span class="icon">&#129302;</span>
+      <p>AI Lab needs a Replicate API token.</p>
+      <p>Set <code>REPLICATE_API_TOKEN</code> env var and restart.</p>
     </div>
-    <div class="card">
-      <h3>Face Swap (Video)</h3>
-      <p>Upload your selfie + a short video clip</p>
-      <button disabled>Coming Soon</button>
+    <div id="ai-cards">
+      <!-- AI Edit -->
+      <div class="ai-card">
+        <h3>&#9997;&#65039; AI Edit</h3>
+        <p>Upload a photo and describe what you want</p>
+        <div class="ai-row">
+          <label class="ai-upload-btn" id="edit-img-label">
+            &#128247; Upload Photo
+            <input type="file" accept="image/*" id="edit-img-input">
+          </label>
+        </div>
+        <textarea class="ai-prompt" id="edit-prompt" rows="2" placeholder="Make me a cartoon / Put me on the moon / Renaissance painting..."></textarea>
+        <button class="ai-submit" id="edit-submit">Create!</button>
+        <div class="ai-status" id="edit-status"></div>
+      </div>
+
+      <!-- AI Video Generation -->
+      <div class="ai-card">
+        <h3>&#127909; AI Video</h3>
+        <p>Generate a video starring you from a prompt (~1-2 min)</p>
+        <div class="ai-row">
+          <label class="ai-upload-btn" id="vidgen-face-label">
+            &#128100; Your Face
+            <input type="file" accept="image/*" id="vidgen-face-input">
+          </label>
+        </div>
+        <textarea class="ai-prompt" id="vidgen-prompt" rows="2" placeholder="Me surfing a giant wave / Dancing on the moon / Walking through a neon city..."></textarea>
+        <button class="ai-submit" id="vidgen-submit">Generate!</button>
+        <div class="ai-status" id="vidgen-status"></div>
+      </div>
     </div>
-    <div class="card">
-      <h3>AI Edit</h3>
-      <p>Upload a photo and describe what you want changed</p>
-      <button disabled>Coming Soon</button>
-    </div>
+
+    <h3 style="font-size:14px; color:var(--text2); margin:12px 0 8px;">Jobs</h3>
     <div id="ai-jobs"></div>
+    <div id="ai-jobs-empty" style="text-align:center; color:#666; font-size:13px; padding:20px;">No AI jobs yet. Submit something above!</div>
   </div>
 
   <!-- Tab 4: Gallery -->
@@ -376,6 +434,7 @@ body { display: flex; flex-direction: column; }
         <button class="filter-btn active" data-filter-group="type" data-filter-value="all">All</button>
         <button class="filter-btn" data-filter-group="type" data-filter-value="photo">Photos</button>
         <button class="filter-btn" data-filter-group="type" data-filter-value="recording">Videos</button>
+        <button class="filter-btn" data-filter-group="type" data-filter-value="ai_result">AI</button>
       </div>
     </div>
     <div class="gallery-filter-row">
@@ -966,7 +1025,7 @@ body { display: flex; flex-direction: column; }
 
       const kindBadge = document.createElement('span');
       kindBadge.className = 'badge kind';
-      kindBadge.textContent = item.type === 'recording' ? 'VIDEO' : 'PHOTO';
+      kindBadge.textContent = item.type === 'recording' ? 'VIDEO' : item.type === 'ai_result' ? 'AI' : 'PHOTO';
       div.appendChild(kindBadge);
 
       const variantBadge = document.createElement('span');
@@ -1010,6 +1069,7 @@ body { display: flex; flex-direction: column; }
       ? (isIosVideo ? 'Open in Safari' : 'Save to Photos')
       : 'Download';
     lbDownload.disabled = false;
+    lbDelete.style.display = '';
     lightbox.classList.add('open');
   }
 
@@ -1098,6 +1158,12 @@ body { display: flex; flex-direction: column; }
     ws.onmessage = (evt) => {
       try {
         const state = JSON.parse(evt.data);
+
+        // Handle AI job update events
+        if (state.type === 'ai_job_update') {
+          handleAiJobUpdate(state);
+          return;
+        }
         statusFps.textContent = state.fps + ' FPS';
         bassFill.style.width = (state.bass_energy * 100) + '%';
         statusEffect.textContent = state.effect;
@@ -1188,6 +1254,11 @@ body { display: flex; flex-direction: column; }
         // HUD sync
         if (state.show_hud !== undefined) {
           hudBtn.classList.toggle('active', state.show_hud);
+        }
+
+        // AI configured state
+        if (state.ai_configured !== undefined) {
+          updateAiConfiguredState(state.ai_configured);
         }
 
         // Countdown badge
@@ -1379,6 +1450,280 @@ body { display: flex; flex-direction: column; }
     } catch (e) { console.error('video-stop', e); }
   });
 
+  // ---- AI Lab ----
+  let aiConfigured = false;
+  let aiJobs = [];
+  let aiSelectedTemplate = null;
+  const aiCards = $id('ai-cards');
+  const aiUnconfigured = $id('ai-unconfigured');
+  const aiJobsContainer = $id('ai-jobs');
+  const aiJobsEmpty = $id('ai-jobs-empty');
+
+  // File input — show filename on label after selection
+  function setupFileLabel(inputId, labelId) {
+    try {
+      const input = $id(inputId);
+      const label = $id(labelId);
+      if (!input || !label) return;
+      const origHTML = label.innerHTML;
+      input.addEventListener('change', () => {
+        if (input.files && input.files.length) {
+          label.classList.add('has-file');
+        } else {
+          label.classList.remove('has-file');
+        }
+      });
+    } catch (e) { console.error('setupFileLabel', inputId, e); }
+  }
+
+  setupFileLabel('edit-img-input', 'edit-img-label');
+  setupFileLabel('vidgen-face-input', 'vidgen-face-label');
+
+  // Load templates
+  async function loadAiTemplates() {
+    try {
+      const res = await fetch('/api/ai/templates');
+      const data = await res.json();
+      const container = $id('fs-templates');
+      container.innerHTML = '';
+      (data.templates || []).forEach(t => {
+        const div = document.createElement('div');
+        div.className = 'ai-tmpl';
+        div.dataset.templateId = t.id;
+        const img = document.createElement('img');
+        img.src = t.url;
+        img.alt = t.name;
+        img.loading = 'lazy';
+        div.appendChild(img);
+        div.addEventListener('click', () => {
+          document.querySelectorAll('.ai-tmpl').forEach(el => el.classList.remove('selected'));
+          if (aiSelectedTemplate === t.id) {
+            aiSelectedTemplate = null;
+          } else {
+            div.classList.add('selected');
+            aiSelectedTemplate = t.id;
+          }
+        });
+        container.appendChild(div);
+      });
+      if ((data.templates || []).length === 0) {
+        container.style.display = 'none';
+        const orDiv = container.nextElementSibling;
+        if (orDiv && orDiv.classList.contains('ai-or')) orDiv.style.display = 'none';
+      }
+    } catch (e) { console.error('loadTemplates', e); }
+  }
+
+  // AI Edit submit
+  $id('edit-submit').addEventListener('click', async () => {
+    const img = $id('edit-img-input').files[0];
+    const prompt = $id('edit-prompt').value.trim();
+    if (!img) { $id('edit-status').textContent = 'Upload a photo first'; return; }
+    if (!prompt) { $id('edit-status').textContent = 'Describe what you want'; return; }
+    const form = new FormData();
+    form.append('image', img);
+    form.append('prompt', prompt);
+    $id('edit-submit').disabled = true;
+    $id('edit-status').textContent = 'Submitting...';
+    try {
+      const res = await fetch('/api/ai/edit', { method: 'POST', body: form });
+      const data = await res.json();
+      if (res.ok) {
+        $id('edit-status').textContent = 'Job submitted!';
+        $id('edit-prompt').value = '';
+        loadAiJobs();
+      } else {
+        $id('edit-status').textContent = data.error || 'Failed';
+      }
+    } catch (e) {
+      $id('edit-status').textContent = 'Submit failed';
+    }
+    $id('edit-submit').disabled = false;
+    setTimeout(() => { $id('edit-status').textContent = ''; }, 3000);
+  });
+
+  // AI Video Generation submit
+  $id('vidgen-submit').addEventListener('click', async () => {
+    const face = $id('vidgen-face-input').files[0];
+    const prompt = $id('vidgen-prompt').value.trim();
+    if (!face) { $id('vidgen-status').textContent = 'Upload your face first'; return; }
+    if (!prompt) { $id('vidgen-status').textContent = 'Describe the video'; return; }
+    const form = new FormData();
+    form.append('face_image', face);
+    form.append('prompt', prompt);
+    $id('vidgen-submit').disabled = true;
+    $id('vidgen-status').textContent = 'Submitting...';
+    try {
+      const res = await fetch('/api/ai/generate-video', { method: 'POST', body: form });
+      const data = await res.json();
+      if (res.ok) {
+        $id('vidgen-status').textContent = 'Job submitted! This takes ~1-2 min.';
+        $id('vidgen-prompt').value = '';
+        loadAiJobs();
+      } else {
+        $id('vidgen-status').textContent = data.error || 'Failed';
+      }
+    } catch (e) {
+      $id('vidgen-status').textContent = 'Submit failed';
+    }
+    $id('vidgen-submit').disabled = false;
+    setTimeout(() => { $id('vidgen-status').textContent = ''; }, 4000);
+  });
+
+  // AI Jobs
+  const JOB_TYPE_ICONS = { face_swap: '&#128247;', face_swap_video: '&#127916;', ai_edit: '&#9997;&#65039;', ai_video: '&#127909;' };
+  const JOB_TYPE_LABELS = { face_swap: 'Face Swap', face_swap_video: 'Video Face Swap', ai_edit: 'AI Edit', ai_video: 'AI Video' };
+
+  let aiPollTimer = null;
+
+  async function loadAiJobs() {
+    try {
+      const res = await fetch('/api/ai/jobs');
+      const data = await res.json();
+      aiJobs = data.jobs || [];
+      renderAiJobs();
+      // Auto-poll every 3s while any jobs are pending/processing
+      const hasActive = aiJobs.some(j => j.status === 'pending' || j.status === 'processing');
+      if (hasActive && !aiPollTimer) {
+        aiPollTimer = setInterval(loadAiJobs, 3000);
+      } else if (!hasActive && aiPollTimer) {
+        clearInterval(aiPollTimer);
+        aiPollTimer = null;
+      }
+    } catch (e) { console.error('loadAiJobs', e); }
+  }
+
+  function renderAiJobs() {
+    aiJobsContainer.innerHTML = '';
+    aiJobsEmpty.style.display = aiJobs.length === 0 ? 'block' : 'none';
+
+    aiJobs.forEach(job => {
+      const div = document.createElement('div');
+      div.className = 'ai-job';
+
+      const icon = document.createElement('span');
+      icon.className = 'ai-job-icon';
+      icon.innerHTML = JOB_TYPE_ICONS[job.job_type] || '&#129302;';
+      div.appendChild(icon);
+
+      const info = document.createElement('div');
+      info.className = 'ai-job-info';
+      const typeEl = document.createElement('div');
+      typeEl.className = 'ai-job-type';
+      typeEl.textContent = JOB_TYPE_LABELS[job.job_type] || job.job_type;
+      info.appendChild(typeEl);
+
+      if (job.prompt) {
+        const promptEl = document.createElement('div');
+        promptEl.className = 'ai-job-prompt';
+        promptEl.textContent = job.prompt;
+        info.appendChild(promptEl);
+      }
+
+      const timeEl = document.createElement('div');
+      timeEl.className = 'ai-job-time';
+      const d = new Date(job.created_at * 1000);
+      timeEl.textContent = d.toLocaleTimeString();
+      info.appendChild(timeEl);
+
+      if (job.status === 'done' && job.result_url) {
+        const actions = document.createElement('div');
+        actions.className = 'ai-job-actions';
+        const dlBtn = document.createElement('button');
+        dlBtn.className = 'ai-job-dl';
+        dlBtn.textContent = 'View';
+        dlBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openAiResult(job);
+        });
+        actions.appendChild(dlBtn);
+
+        if (job.job_type === 'face_swap_video' || job.job_type === 'ai_video') {
+          const tvBtn = document.createElement('button');
+          tvBtn.className = 'ai-job-tv';
+          tvBtn.textContent = '&#128250; TV';
+          tvBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            try {
+              await fetch('/api/ai/jobs/' + job.job_id + '/play-tv', { method: 'POST' });
+            } catch (err) { console.error('play-tv', err); }
+          });
+          actions.appendChild(tvBtn);
+        }
+        info.appendChild(actions);
+      }
+
+      if (job.status === 'failed' && job.error) {
+        const errEl = document.createElement('div');
+        errEl.className = 'ai-job-prompt';
+        errEl.style.color = 'var(--red)';
+        errEl.textContent = job.error;
+        info.appendChild(errEl);
+      }
+
+      div.appendChild(info);
+
+      if (job.status === 'done' && job.result_url && !job.result_url.endsWith('.mp4') && !job.result_url.endsWith('.mov') && !job.result_url.endsWith('.webm')) {
+        const thumb = document.createElement('img');
+        thumb.className = 'ai-job-thumb';
+        thumb.src = job.result_url;
+        thumb.loading = 'lazy';
+        div.appendChild(thumb);
+      }
+
+      const badge = document.createElement('span');
+      badge.className = 'ai-job-badge ' + job.status;
+      badge.textContent = job.status === 'processing' ? 'Processing...' : job.status.charAt(0).toUpperCase() + job.status.slice(1);
+      div.appendChild(badge);
+
+      aiJobsContainer.appendChild(div);
+    });
+  }
+
+  function openAiResult(job) {
+    if (!job.result_url) return;
+    const isVideo = job.result_url.endsWith('.mp4') || job.result_url.endsWith('.mov') || job.result_url.endsWith('.webm');
+    lightboxMedia.innerHTML = '';
+    lightboxFile = { filename: job.result_url, name: job.job_id + (isVideo ? '.mp4' : '.png'), type: isVideo ? 'recording' : 'ai_result' };
+
+    if (isVideo) {
+      const vid = document.createElement('video');
+      vid.src = job.result_url;
+      vid.controls = true;
+      vid.autoplay = true;
+      vid.playsInline = true;
+      vid.style.maxWidth = '95%';
+      vid.style.maxHeight = '75vh';
+      lightboxMedia.appendChild(vid);
+    } else {
+      const img = document.createElement('img');
+      img.src = job.result_url;
+      lightboxMedia.appendChild(img);
+    }
+    lbDownload.textContent = 'Download';
+    lbDownload.disabled = false;
+    lbDelete.style.display = 'none';
+    lightbox.classList.add('open');
+  }
+
+  function updateAiConfiguredState(configured) {
+    if (configured === aiConfigured) return;
+    aiConfigured = configured;
+    aiUnconfigured.style.display = configured ? 'none' : 'block';
+    aiCards.style.display = configured ? 'block' : 'none';
+  }
+
+  function handleAiJobUpdate(data) {
+    if (!data.job) return;
+    const idx = aiJobs.findIndex(j => j.job_id === data.job.job_id);
+    if (idx >= 0) {
+      aiJobs[idx] = data.job;
+    } else {
+      aiJobs.unshift(data.job);
+    }
+    renderAiJobs();
+  }
+
   // ---- Init ----
   connectWS();
 
@@ -1399,6 +1744,14 @@ body { display: flex; flex-direction: column; }
 
   renderQrState();
   loadSnowfallImages();
+  loadAiJobs();
+
+  // Also load AI jobs when switching to AI tab
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.tab === 'tab-ai') loadAiJobs();
+    });
+  });
 
 })();
 </script>
