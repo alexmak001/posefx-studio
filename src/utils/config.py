@@ -29,6 +29,7 @@ class InferenceConfig:
     device: str = "mps"
     confidence_threshold: float = 0.5
     inference_scale: float = 0.5
+    inference_every_n_frames: int = 1
 
 
 @dataclass

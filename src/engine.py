@@ -122,6 +122,9 @@ class PartyEngine:
         self._brightness = 1.0
         self._tv_source = "camera"  # "camera" | "youtube" | "media"
         self._show_hud = True
+        self._frame_count = 0
+        self._last_pose: PoseResult | None = None
+        self._last_mask: MaskResult | None = None
 
         # Load inference models
         self._pose_estimator = YOLOPoseEstimator(config.inference)
@@ -766,13 +769,17 @@ class PartyEngine:
         pose: PoseResult | None = None
         mask: MaskResult | None = None
         scale = self._config.inference.inference_scale
+        skip_n = self._config.inference.inference_every_n_frames
         needs_presence_pose = auto_capture_enabled and not renderer.needs_pose and not renderer.needs_mask
         needs_pose = renderer.needs_pose or needs_presence_pose
         needs_mask = renderer.needs_mask
         needs_inference = needs_pose or needs_mask
 
+        self._frame_count += 1
+        run_inference = (self._frame_count % max(1, skip_n) == 0)
+
         # Downscale for inference if needed
-        if needs_inference and 0 < scale < 1.0:
+        if needs_inference and run_inference and 0 < scale < 1.0:
             small = cv2.resize(frame, None, fx=scale, fy=scale,
                                interpolation=cv2.INTER_LINEAR)
         else:
@@ -780,32 +787,40 @@ class PartyEngine:
             scale = 1.0
 
         if needs_pose:
-            pose = self._pose_estimator.infer(small)
-            if scale < 1.0 and pose.num_people > 0:
-                inv = 1.0 / scale
-                pose = PoseResult(
-                    keypoints=pose.keypoints * inv,
-                    confidences=pose.confidences,
-                    boxes=pose.boxes * inv,
-                    num_people=pose.num_people,
-                )
+            if run_inference:
+                pose = self._pose_estimator.infer(small)
+                if scale < 1.0 and pose.num_people > 0:
+                    inv = 1.0 / scale
+                    pose = PoseResult(
+                        keypoints=pose.keypoints * inv,
+                        confidences=pose.confidences,
+                        boxes=pose.boxes * inv,
+                        num_people=pose.num_people,
+                    )
+                self._last_pose = pose
+            else:
+                pose = self._last_pose
 
         if needs_mask:
-            mask = self._segmenter.infer(small)
-            if scale < 1.0 and mask.num_people > 0:
-                h, w = frame.shape[:2]
-                full_masks = np.zeros((mask.num_people, h, w), dtype=np.uint8)
-                for i in range(mask.num_people):
-                    full_masks[i] = cv2.resize(
-                        mask.masks[i], (w, h),
-                        interpolation=cv2.INTER_LINEAR,
+            if run_inference:
+                mask = self._segmenter.infer(small)
+                if scale < 1.0 and mask.num_people > 0:
+                    h, w = frame.shape[:2]
+                    full_masks = np.zeros((mask.num_people, h, w), dtype=np.uint8)
+                    for i in range(mask.num_people):
+                        full_masks[i] = cv2.resize(
+                            mask.masks[i], (w, h),
+                            interpolation=cv2.INTER_LINEAR,
+                        )
+                        full_masks[i] = (full_masks[i] > 0).astype(np.uint8)
+                    mask = MaskResult(
+                        masks=full_masks,
+                        combined_mask=np.any(full_masks, axis=0).astype(np.uint8),
+                        num_people=mask.num_people,
                     )
-                    full_masks[i] = (full_masks[i] > 0).astype(np.uint8)
-                mask = MaskResult(
-                    masks=full_masks,
-                    combined_mask=np.any(full_masks, axis=0).astype(np.uint8),
-                    num_people=mask.num_people,
-                )
+                self._last_mask = mask
+            else:
+                mask = self._last_mask
 
         ctx = RenderContext(
             frame=frame,

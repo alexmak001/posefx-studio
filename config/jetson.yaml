@@ -1,7 +1,7 @@
 camera:
   device_id: 0
-  width: 1280
-  height: 720
+  width: 640
+  height: 480
   fps: 30
 
 inference:
@@ -9,7 +9,8 @@ inference:
   seg_model: "yolov8n-seg.pt"
   device: "cuda"        # requires Jetson PyTorch — see below if CUDA unavailable
   confidence_threshold: 0.45
-  inference_scale: 0.4  # lower = faster inference (was 0.5)
+  inference_scale: 0.5
+  inference_every_n_frames: 2  # run inference every 2nd frame, reuse last result
 
 effects:
   default: "neon_wireframe"
