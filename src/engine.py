@@ -23,6 +23,7 @@ from src.inference.segmenter import YOLOSegmenter
 from src.io.photo_capture import PhotoCapture
 from src.io.recorder import VideoRecorder
 from src.render.base import BaseRenderer, RenderContext
+from src.render.effects.bass_pulse import BassPulseRenderer
 from src.render.effects.digital_rain import DigitalRainRenderer
 from src.render.effects.energy_aura import EnergyAuraRenderer
 from src.render.effects.glitch_body import GlitchBodyRenderer
@@ -42,12 +43,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 FLASH_DURATION_SECONDS = 0.2
 _HAS_FFMPEG = shutil.which("ffmpeg") is not None
-QR_LABEL_TEXT = "SCAN TO OPEN"
-QR_MARGIN = 16
-QR_PADDING = 12
-QR_LABEL_HEIGHT = 22
-QR_MIN_SIZE = 104
-QR_MAX_SIZE = 180
+QR_LABEL_TEXT = "SCAN TO PARTY"
+QR_MARGIN = 10
+QR_PADDING = 6
+QR_LABEL_HEIGHT = 16
+QR_MIN_SIZE = 52
+QR_MAX_SIZE = 90
 QR_PANEL_COLOR = (8, 8, 8)
 QR_PANEL_ALPHA = 0.82
 QR_LABEL_COLOR = (220, 220, 220)
@@ -122,6 +123,8 @@ class PartyEngine:
         self._brightness = 1.0
         self._tv_source = "camera"  # "camera" | "youtube" | "media"
         self._show_hud = True
+        self._bass_overlay = False
+        self._bass_overlay_renderer = BassPulseRenderer()
 
         # Load inference models
         self._pose_estimator = YOLOPoseEstimator(config.inference)
@@ -249,11 +252,13 @@ class PartyEngine:
             from src.render.effects.particle_dissolve import ParticleDissolveRenderer as PDR
             from src.render.effects.halo_wings import HaloWingsRenderer as HWR
             from src.render.effects.sprite_puppet import SpritePuppetRenderer as SPR
+            from src.render.effects.bass_pulse import BassPulseRenderer as BPR
             from src.render.effects.passthrough import PassthroughRenderer as PTR
 
             self._renderers = [
                 NWR(), EAR(), MTR(), GBR(), DRR(), SCR(), PDR(), HWR(), SPR(), PTR(),
             ]
+            self._bass_overlay_renderer = BPR()
             self._renderer_map = {r.name: r for r in self._renderers}
 
             # Re-apply saved state to fresh renderer instances
@@ -473,6 +478,21 @@ class PartyEngine:
         return self._show_hud
 
     @property
+    def bass_overlay(self) -> bool:
+        return self._bass_overlay
+
+    def toggle_bass_overlay(self) -> bool:
+        self._bass_overlay = not self._bass_overlay
+        return self._bass_overlay
+
+    @property
+    def noise_gate(self) -> float:
+        return self._config.audio.noise_gate
+
+    def set_noise_gate(self, value: float) -> None:
+        self._config.audio.noise_gate = max(0.0, value)
+
+    @property
     def hub_url(self) -> str | None:
         """Current phone-access URL for the local web app."""
         return self._hub_url
@@ -530,7 +550,7 @@ class PartyEngine:
             qr_image = self._qr_image.copy()
 
         frame_h, frame_w = frame.shape[:2]
-        side = int(min(QR_MAX_SIZE, max(QR_MIN_SIZE, min(frame_h, frame_w) * 0.24)))
+        side = int(min(QR_MAX_SIZE, max(QR_MIN_SIZE, min(frame_h, frame_w) * 0.12)))
         qr_resized = cv2.resize(
             qr_image,
             (side, side),
@@ -554,14 +574,15 @@ class PartyEngine:
         )
         frame[:] = cv2.addWeighted(overlay, QR_PANEL_ALPHA, frame, 1.0 - QR_PANEL_ALPHA, 0.0)
 
-        label_x = panel_x + QR_PADDING
-        label_y = panel_y + 15
+        text_size = cv2.getTextSize(QR_LABEL_TEXT, cv2.FONT_HERSHEY_SIMPLEX, 0.3, 1)[0]
+        label_x = panel_x + (panel_w - text_size[0]) // 2
+        label_y = panel_y + 12
         cv2.putText(
             frame,
             QR_LABEL_TEXT,
             (label_x, label_y),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.45,
+            0.3,
             QR_LABEL_COLOR,
             1,
             cv2.LINE_AA,
@@ -819,6 +840,17 @@ class PartyEngine:
 
         output = renderer.render(ctx)
 
+        # Apply bass color overlay if toggled on
+        if self._bass_overlay:
+            bass_ctx = RenderContext(
+                frame=output,
+                pose=None,
+                mask=None,
+                bass_energy=self._bass_energy,
+                timestamp=ctx.timestamp,
+            )
+            output = self._bass_overlay_renderer.render(bass_ctx)
+
         # Apply global brightness
         if self._brightness != 1.0:
             output = cv2.convertScaleAbs(output, alpha=self._brightness, beta=0)
@@ -957,6 +989,8 @@ class PartyEngine:
             "brightness": self._brightness,
             "tv_source": self._tv_source,
             "show_hud": self._show_hud,
+            "bass_overlay": self._bass_overlay,
+            "noise_gate": self._config.audio.noise_gate,
         }
 
     def close(self) -> Path | None:

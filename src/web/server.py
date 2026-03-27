@@ -328,6 +328,21 @@ async def set_brightness(request: Request) -> JSONResponse:
     return JSONResponse({"brightness": _get_engine().brightness})
 
 
+@app.post("/api/noise-gate")
+async def set_noise_gate(request: Request) -> JSONResponse:
+    """Set the audio noise gate threshold."""
+    body = await request.json()
+    value = body.get("value")
+    if value is None:
+        return JSONResponse({"error": "Missing 'value'"}, status_code=400)
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "Invalid value"}, status_code=400)
+    _get_engine().set_noise_gate(value)
+    return JSONResponse({"noise_gate": _get_engine().noise_gate})
+
+
 @app.post("/api/puppet-opacity")
 async def set_puppet_opacity(request: Request) -> JSONResponse:
     """Set the Custom Avatar opacity."""
@@ -827,6 +842,14 @@ async def toggle_hud() -> JSONResponse:
     engine = _get_engine()
     visible = engine.toggle_hud()
     return JSONResponse({"show_hud": visible})
+
+
+@app.post("/api/bass-overlay/toggle")
+async def toggle_bass_overlay() -> JSONResponse:
+    """Toggle bass-reactive color overlay on top of the active effect."""
+    engine = _get_engine()
+    enabled = engine.toggle_bass_overlay()
+    return JSONResponse({"bass_overlay": enabled})
 
 
 # ---------------------------------------------------------------------------

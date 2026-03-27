@@ -216,6 +216,7 @@ body { display: flex; flex-direction: column; }
   <div class="bass-bar"><div class="bass-bar-fill" id="bass-fill"></div></div>
   <button class="status-btn" id="reload-btn">Reload</button>
   <button class="status-btn active" id="hud-toggle">HUD</button>
+  <button class="status-btn" id="bass-overlay-toggle">BASS</button>
   <button class="status-btn" id="qr-open">QR</button>
   <span class="status-effect" id="status-effect">--</span>
 </div>
@@ -354,6 +355,16 @@ body { display: flex; flex-direction: column; }
         <span id="brightness-val" style="font-size:12px;color:var(--text2)">100%</span>
       </label>
       <input type="range" id="brightness-slider" min="20" max="200" value="100"
+        style="width:100%;accent-color:var(--accent)">
+    </div>
+
+    <!-- Audio noise gate slider -->
+    <div class="toggle-row" style="flex-wrap:wrap;gap:8px;margin-top:var(--gap)">
+      <label style="width:100%;display:flex;justify-content:space-between;align-items:center">
+        Noise Gate
+        <span id="noise-gate-val" style="font-size:12px;color:var(--text2)">200</span>
+      </label>
+      <input type="range" id="noise-gate-slider" min="0" max="5000" step="50" value="200"
         style="width:100%;accent-color:var(--accent)">
     </div>
   </div>
@@ -852,6 +863,23 @@ body { display: flex; flex-direction: column; }
     } catch (e) { console.error('brightness', e); }
   });
 
+  // ---- Noise gate slider ----
+  const noiseGateSlider = $id('noise-gate-slider');
+  const noiseGateVal = $id('noise-gate-val');
+
+  noiseGateSlider.addEventListener('input', () => {
+    noiseGateVal.textContent = noiseGateSlider.value;
+  });
+  noiseGateSlider.addEventListener('change', async () => {
+    try {
+      await fetch('/api/noise-gate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: parseFloat(noiseGateSlider.value) })
+      });
+    } catch (e) { console.error('noise-gate', e); }
+  });
+
   // ---- Snowfall Custom 2-slot image upload ----
   async function loadSnowfallImages() {
     try {
@@ -1101,6 +1129,16 @@ body { display: flex; flex-direction: column; }
     } catch (e) { console.error('hud', e); }
   });
 
+  // ---- Bass overlay toggle ----
+  const bassBtn = $id('bass-overlay-toggle');
+  bassBtn.addEventListener('click', async () => {
+    try {
+      const res = await fetch('/api/bass-overlay/toggle', { method: 'POST' });
+      const data = await res.json();
+      bassBtn.classList.toggle('active', data.bass_overlay);
+    } catch (e) { console.error('bass overlay', e); }
+  });
+
   // ---- QR controls ----
   qrOpen.addEventListener('click', () => {
     qrModal.classList.add('open');
@@ -1239,6 +1277,11 @@ body { display: flex; flex-direction: column; }
           updatingBrightnessFromWS = false;
         }
 
+        if (state.noise_gate !== undefined && !noiseGateSlider.matches(':active')) {
+          noiseGateSlider.value = state.noise_gate;
+          noiseGateVal.textContent = Math.round(state.noise_gate);
+        }
+
         // YouTube status
         if (state.youtube) updateYoutubeStatus(state.youtube);
 
@@ -1254,6 +1297,11 @@ body { display: flex; flex-direction: column; }
         // HUD sync
         if (state.show_hud !== undefined) {
           hudBtn.classList.toggle('active', state.show_hud);
+        }
+
+        // Bass overlay sync
+        if (state.bass_overlay !== undefined) {
+          bassBtn.classList.toggle('active', state.bass_overlay);
         }
 
         // AI configured state

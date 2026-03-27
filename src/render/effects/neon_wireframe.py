@@ -8,6 +8,9 @@ import numpy as np
 from src.render.base import BaseRenderer, RenderContext
 from src.render.effects import CONFIDENCE_MIN, SKELETON_CONNECTIONS
 
+# Keypoint indices 0-4 are face (nose, eyes, ears) — skip these for skeleton drawing
+_HEAD_KEYPOINTS = {0, 1, 2, 3, 4}
+
 
 class NeonWireframeRenderer(BaseRenderer):
     """Glowing neon skeleton and halo circle around each detected head.
@@ -48,8 +51,10 @@ class NeonWireframeRenderer(BaseRenderer):
             kpts = ctx.pose.keypoints[person_idx]
             confs = ctx.pose.confidences[person_idx]
 
-            # ---- Skeleton lines ----
+            # ---- Skeleton lines (skip face connections) ----
             for conn_idx, (i, j) in enumerate(SKELETON_CONNECTIONS):
+                if i in _HEAD_KEYPOINTS and j in _HEAD_KEYPOINTS:
+                    continue
                 if confs[i] > CONFIDENCE_MIN and confs[j] > CONFIDENCE_MIN:
                     pt1 = (int(kpts[i, 0]), int(kpts[i, 1]))
                     pt2 = (int(kpts[j, 0]), int(kpts[j, 1]))
@@ -64,8 +69,10 @@ class NeonWireframeRenderer(BaseRenderer):
                     cv2.line(core_layer, pt1, pt2, color,
                              thickness, cv2.LINE_AA)
 
-            # ---- Joint dots ----
+            # ---- Joint dots (skip face keypoints) ----
             for k in range(17):
+                if k in _HEAD_KEYPOINTS:
+                    continue
                 if confs[k] > CONFIDENCE_MIN:
                     pt = (int(kpts[k, 0]), int(kpts[k, 1]))
                     joint_hue = (base_hue + k * 10) % 180

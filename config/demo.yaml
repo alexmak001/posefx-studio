@@ -24,7 +24,7 @@ audio:
   smoothing_attack: 0.3
   smoothing_decay: 0.05
   sensitivity: 2.0        # multiplier on bass energy (higher = more reactive)
-  noise_gate: 2000.0       # bass magnitude below this is treated as silence
+  noise_gate: 2000.0        # bass magnitude below this is treated as silence
 
 capture:
   photo_dir: "data/photos"
